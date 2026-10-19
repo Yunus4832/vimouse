@@ -1,0 +1,18 @@
+[Unit]
+Description=Vimouse keyboard mouse and native overlay
+PartOf=graphical-session.target
+After=graphical-session-pre.target
+StartLimitIntervalSec=30
+StartLimitBurst=3
+
+[Service]
+Type=notify
+NotifyAccess=main
+ExecStart=%h/.local/bin/vimouse run
+Restart=on-failure
+RestartSec=3
+TimeoutStartSec=15
+TimeoutStopSec=3
+
+[Install]
+WantedBy=graphical-session.target

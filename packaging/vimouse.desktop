@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Vimouse
+Comment=Control your mouse with Vim-style keys
+Exec=vimouse run
+Icon=input-mouse
+Terminal=false
+Categories=Utility;Accessibility;

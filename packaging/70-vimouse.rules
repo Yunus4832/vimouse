@@ -1,0 +1,4 @@
+# Optional: create the dedicated vimouse group and add only the intended user.
+# Membership permits reading keyboard events and injecting system input.
+SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_KEYBOARD}=="1", GROUP="vimouse", MODE="0660"
+SUBSYSTEM=="misc", KERNEL=="uinput", GROUP="vimouse", MODE="0660", OPTIONS+="static_node=uinput"

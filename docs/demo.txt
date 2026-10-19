@@ -1,0 +1,13 @@
+# Pure controller demo: movement, speed, marks, jumps, drag, menu and quit.
+caps
+l:500
+a j:200
+m a
+g g
+' a
+v l:200 v
+alt+enter j j enter
+shift+i
+caps
+: m a r k s enter
+: q enter

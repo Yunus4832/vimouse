@@ -1,0 +1,12 @@
+# Three speeds, in virtual logical pixels per second (fast → fine).
+toggle = "capslock" # also: f8, f9, f10, f11, f12
+speeds = [1600.0, 400.0, 100.0]
+tick_hz = 120
+idle_seconds = 60 # 0 disables automatic return to insert mode
+scroll_interval_ms = 80
+scroll_lines = 1
+
+# Set this to your target display's logical resolution, after display scaling.
+[screen]
+width = 1920
+height = 1080

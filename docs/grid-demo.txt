@@ -1,0 +1,22 @@
+# f is one quick jump; hjkl works immediately afterwards in Normal.
+caps
+f
+a:500
+l:200
+# Tab opens a same-sized precision viewport centered on the current pointer.
+tab
+p:500
+h:500
+k:500
+space
+# Precision can start directly, without another f.
+tab
+k:500
+l:500
+j:500
+tab:500
+h:500
+tab:500
+z:500
+space
+: q enter
