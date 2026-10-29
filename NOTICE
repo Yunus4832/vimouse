@@ -1,10 +1,5 @@
-Vimouse — Rust reimplementation
+Vimouse
 Copyright 2026 Yunus4832 and contributors
-
-Interaction design is based on Yunus4832/Vimouse (Apache-2.0):
-https://github.com/Yunus4832/Vimouse
-The original project credits firemakergk/vimouse for its initial inspiration.
-This implementation is written anew; no Python implementation is used at runtime.
 
 The native HUD embeds DejaVu Sans Mono fonts. Font and dependency notices
 are available with `vimouse licenses` and in THIRD-PARTY-NOTICES.txt.

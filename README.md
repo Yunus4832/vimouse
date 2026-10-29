@@ -2,7 +2,7 @@
 
 用 Vim 的方式操作鼠标：`hjkl` 移动，`f` 快速跳转，`Tab` 精细定位。按一次 `Caps Lock` 开始控制，再按一次回到正常打字。
 
-Vimouse 是面向 Linux 的 Rust 项目。浮层直接使用 Wayland，字体内嵌，无需 Qt 或 GTK；musl 构建可作为单个静态二进制运行。原 Python / Windows 版本已归档至 [vimouse-legacy](https://github.com/Yunus4832/vimouse-legacy)。
+Vimouse 是面向 Linux 的 Rust 项目。浮层直接使用 Wayland，字体内嵌，无需 Qt 或 GTK；musl 构建可作为单个静态二进制运行。
 
 日常控制时只显示右下角的模式与速度胶囊，输入命令时展开命令条；打字时隐藏。浮层始终允许鼠标点击穿透，不接收键盘焦点。
 
@@ -123,4 +123,4 @@ cp config.example.toml ~/.config/vimouse/config.toml
 - [架构与实机检查](docs/architecture.md)：代码结构和验证方法。
 - [更新记录](CHANGELOG.md) · [后续快捷键候选](docs/shortcuts-roadmap.md)。
 
-许可证为 [Apache-2.0](LICENSE)，来源与第三方说明见 [NOTICE](NOTICE)。单文件发行包内也可使用 `vimouse licenses` 查看。
+许可证为 [Apache-2.0](LICENSE)，项目与第三方说明见 [NOTICE](NOTICE)。单文件发行包内也可使用 `vimouse licenses` 查看。

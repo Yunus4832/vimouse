@@ -292,4 +292,4 @@ sh scripts/build-release.sh --static
 
 重新生成文档中的透明 PNG：`python3 scripts/render-doc-images.py`。脚本直接导出 HUD 渲染结果，保留 alpha 通道，不连接桌面或接管输入，仅使用 Python 标准库。
 
-详见 [架构与实机检查](architecture.md)；后续功能候选见 [快捷键设计](shortcuts-roadmap.md)（其中 M、?、1/2/3 已实现，其余仍为候选）。Apache-2.0，旧项目及灵感来源见 [NOTICE](../NOTICE)。
+详见 [架构与实机检查](architecture.md)；后续功能候选见 [快捷键设计](shortcuts-roadmap.md)（其中 M、?、1/2/3 已实现，其余仍为候选）。Apache-2.0，项目与第三方说明见 [NOTICE](../NOTICE)。
