@@ -32,7 +32,7 @@ fn user_only() -> Result<(), String> {
         Ok(())
     }
 }
-fn paths() -> Result<(PathBuf, PathBuf), String> {
+fn service_directory() -> Result<PathBuf, String> {
     let home = env::var_os("HOME")
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
@@ -43,7 +43,7 @@ fn paths() -> Result<(PathBuf, PathBuf), String> {
     if !config.is_absolute() {
         return Err("XDG_CONFIG_HOME must be an absolute path".into());
     }
-    Ok((home.join(".local/bin/vimouse"), config.join("systemd/user")))
+    Ok(config.join("systemd/user"))
 }
 fn systemctl(args: &[&str]) -> Result<(), String> {
     let status = Command::new("systemctl")
@@ -165,11 +165,11 @@ pub fn execute(command: &str, args: Vec<String>) -> Result<(), String> {
         }
         return Ok(());
     }
-    let (binary, directory) = paths()?;
+    let directory = service_directory()?;
     match command {
         "install-service" => {
             manager_ready()?;
-            install_binary(&binary)?;
+            let binary = env::current_exe().map_err(|e| e.to_string())?;
             atomic_write(&directory.join(UNIT), unit(&binary)?.as_bytes(), 0o644)?;
             save_session()?;
             // Migrate the former two-service layout without creating duplicate HUDs.
@@ -179,7 +179,7 @@ pub fn execute(command: &str, args: Vec<String>) -> Result<(), String> {
             systemctl(&["daemon-reload"])?;
             systemctl(&["enable", UNIT])?;
             println!(
-                "Installed {} and enabled {UNIT} for graphical login.",
+                "Registered {} and enabled {UNIT} for graphical login.",
                 binary.display()
             );
             println!(

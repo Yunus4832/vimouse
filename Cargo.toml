@@ -5,6 +5,8 @@ edition = "2024"
 rust-version = "1.85"
 description = "A modal keyboard-driven mouse for Linux"
 license = "Apache-2.0"
+repository = "https://github.com/Yunus4832/vimouse"
+readme = "README.md"
 
 [dependencies]
 evdev = "0.13.2"

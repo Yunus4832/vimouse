@@ -22,30 +22,28 @@ Vimouse 是面向 Linux 的 Rust 项目。浮层直接使用 Wayland，字体内
 
 ## 安装与启动
 
-目前可以从源码构建，需要 Linux 和 Rust 工具链：
+推荐使用 Cargo 从 GitHub 安装，需要 Linux 和 Rust 工具链：
 
 ```sh
-git clone https://github.com/Yunus4832/vimouse.git
-cd vimouse
-cargo build --release --locked
+cargo install --git https://github.com/Yunus4832/vimouse.git --locked
 
-./target/release/vimouse init
-./target/release/vimouse doctor
-./target/release/vimouse run
+vimouse init
+vimouse doctor
+vimouse run
 ```
 
 请在**桌面终端中以普通用户**执行。`init` 会按需通过 sudo 或 pkexec 请求管理员认证，配置 uinput 和设备权限；日常运行无需 sudo。当前设备权限立即生效，建议注销并重新登录一次，让用户组权限覆盖后续设备与服务。
 
-想先看看效果，可运行 `cargo run -- demo`，输入 `caps f a` 并回车。演示不接管键盘，也不移动系统鼠标。
+想先看看效果，可运行 `vimouse demo`，输入 `caps f a` 并回车。演示不接管键盘，也不移动系统鼠标。
 
 试用满意后，可安装为登录自启动的用户服务。先退出前台运行的实例，再执行：
 
 ```sh
-./target/release/vimouse install-service
-~/.local/bin/vimouse start
+vimouse install-service
+vimouse start
 ```
 
-`install-service` 会将程序复制到 `~/.local/bin/vimouse` 并启用自启动，`start` 立即启动服务。若只想安装程序、仍手动运行，使用 `vimouse install`。详情见[安装与设备权限](docs/guide.md#安装与设备权限)。
+`install-service` 注册当前可执行文件并启用自启动，不再复制程序；`start` 立即启动服务。Cargo 默认安装到 `~/.cargo/bin`，请确保安装目录已加入 PATH；自定义 Cargo 安装目录也支持。详情见[安装与设备权限](docs/guide.md#安装与设备权限)。
 
 ## 开始使用
 
@@ -91,7 +89,7 @@ cargo build --release --locked
 
 ## 服务管理与更新
 
-以下命令假设 `~/.local/bin` 已加入 PATH；否则请使用完整路径 `~/.local/bin/vimouse`。
+以下命令假设 Cargo 的可执行文件目录（通常为 `~/.cargo/bin`）已加入 PATH。
 
 ```sh
 vimouse status
@@ -100,19 +98,20 @@ vimouse start
 journalctl --user -u vimouse.service -n 40
 ```
 
-更新源码后，重新构建并替换已安装的程序，再重启服务：
+更新时通过 Cargo 重新安装，再重启服务。从旧安装方式迁移或更换程序路径时，需要执行一次 `install-service` 更新服务路径：
 
 ```sh
-git pull --ff-only
-cargo build --release --locked
-./target/release/vimouse install
-~/.local/bin/vimouse stop
-~/.local/bin/vimouse start
+cargo install --git https://github.com/Yunus4832/vimouse.git --locked --force
+vimouse install-service
+vimouse stop
+vimouse start
 ```
 
 更新保留配置与标记。服务与前台 `run` 选择一种运行方式即可，详情见[用户服务](docs/guide.md#安装用户服务与自启动)。
 
 ## 配置与文档
+
+本地源码目录可以使用 `cargo install --path . --locked` 安装。手动下载单文件时，仍可使用 `vimouse install` 安装程序。
 
 无需配置即可运行。需要调整速度、切换键或空闲超时，可复制示例后修改，重启生效：
 

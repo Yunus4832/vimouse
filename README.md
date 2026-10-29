@@ -20,32 +20,30 @@ The full interface requires **Linux and a Wayland compositor with layer-shell su
 - GNOME Wayland and X11 have no overlay backend yet. You can try input control with `--no-hud`, but the visual grids will be unavailable.
 - Windows and macOS are not supported. See [compatibility and limitations](docs/guide.md#010-支持环境与限制) (Chinese) for details about other compositors.
 
-## Build and run
+## Install and run
 
-Build from source on Linux with the Rust toolchain:
+Install from GitHub on Linux with the Rust toolchain. Cargo manages the executable:
 
 ```sh
-git clone https://github.com/Yunus4832/vimouse.git
-cd vimouse
-cargo build --release --locked
+cargo install --git https://github.com/Yunus4832/vimouse.git --locked
 
-./target/release/vimouse init
-./target/release/vimouse doctor
-./target/release/vimouse run
+vimouse init
+vimouse doctor
+vimouse run
 ```
 
 Run these commands **as your regular user in a desktop terminal**. `init` requests administrator authentication through sudo or pkexec when needed to configure uinput and device permissions. Daily use does not require sudo. Access to currently connected devices takes effect immediately; log out and back in once so group permissions also apply to future devices and services.
 
-To try the interface first, run `cargo run -- demo`, type `caps f a`, and press Enter. The demo neither captures your keyboard nor moves the system pointer.
+To try the interface first, run `vimouse demo`, type `caps f a`, and press Enter. The demo neither captures your keyboard nor moves the system pointer.
 
 To start Vimouse automatically when you log in, exit the foreground instance and install the user service:
 
 ```sh
-./target/release/vimouse install-service
-~/.local/bin/vimouse start
+vimouse install-service
+vimouse start
 ```
 
-`install-service` copies the binary to `~/.local/bin/vimouse` and enables login autostart. `start` launches the service immediately. To install only the executable and keep running it manually, use `vimouse install`. See [installation and device permissions](docs/guide.md#安装与设备权限) (Chinese) for details.
+`install-service` registers the current executable and enables login autostart without copying the binary. `start` launches the service immediately. Cargo normally installs to `~/.cargo/bin`; ensure its installation directory is on PATH. Custom Cargo installation roots are also supported. See [installation and device permissions](docs/guide.md#安装与设备权限) (Chinese) for details.
 
 ## Basic controls
 
@@ -91,7 +89,7 @@ For menu navigation, commands, window switching, and more shortcuts, see the [co
 
 ## Manage the service and update
 
-These commands assume `~/.local/bin` is on your PATH. Otherwise, use the full executable path, `~/.local/bin/vimouse`.
+These commands assume Cargo’s executable directory (normally `~/.cargo/bin`) is on PATH.
 
 ```sh
 vimouse status
@@ -100,19 +98,20 @@ vimouse start
 journalctl --user -u vimouse.service -n 40
 ```
 
-After pulling updates, rebuild, replace the installed binary, and restart the service:
+To update, reinstall through Cargo and restart the service. Run `install-service` once when migrating from an earlier installation, or when changing the executable path:
 
 ```sh
-git pull --ff-only
-cargo build --release --locked
-./target/release/vimouse install
-~/.local/bin/vimouse stop
-~/.local/bin/vimouse start
+cargo install --git https://github.com/Yunus4832/vimouse.git --locked --force
+vimouse install-service
+vimouse stop
+vimouse start
 ```
 
 Updates preserve your configuration and marks. Run either the user service or a foreground `run` instance, one at a time. See [user service management](docs/guide.md#安装用户服务与自启动) (Chinese) for details.
 
 ## Configuration and documentation
+
+For a local checkout, install with `cargo install --path . --locked`. The standalone `vimouse install` command remains available for manually downloaded binaries.
 
 Vimouse works with its defaults. To customize speeds, the mode-switch key, or the idle timeout, copy the example configuration, edit it, and restart:
 

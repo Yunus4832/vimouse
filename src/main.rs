@@ -18,7 +18,7 @@ const HELP: &str = "Vimouse — modal mouse control for Linux
 Usage: vimouse <command> [options]
   install        Copy this executable to ~/.local/bin/vimouse (no service changes)
   init           Request administrator authentication and configure input permissions
-  install-service Install and enable the user service (does not start it)
+  install-service Register this executable as a user service (enable, but do not start)
   start          Start the installed user service
   stop           Stop the user service and its overlay
   status         Show user service status

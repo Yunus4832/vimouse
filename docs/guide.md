@@ -4,7 +4,18 @@
 
 ## 安装与设备权限
 
-下载静态二进制后，在桌面终端中以普通用户执行：
+推荐使用 Cargo 管理安装与更新：
+
+```sh
+cargo install --git https://github.com/Yunus4832/vimouse.git --locked
+vimouse init
+vimouse doctor
+vimouse run
+```
+
+默认安装目录是 `~/.cargo/bin`，请将其加入 PATH。本地源码可使用 `cargo install --path . --locked`；更新可重复执行 GitHub 安装命令并添加 `--force`。
+
+如果选择手动下载静态二进制，则在桌面终端中以普通用户执行：
 
 ```sh
 chmod +x ./vimouse
@@ -14,7 +25,7 @@ chmod +x ./vimouse
 ./vimouse run
 ```
 
-`install` 只将当前二进制原子复制到用户安装目录 `~/.local/bin/vimouse`，无需管理员权限，不配置权限、不安装或启用服务。可以重复执行以更新程序；若该目录不在 PATH，命令会提示添加。`init` 不包含程序安装；`install-service` 会自动包含相同的程序安装步骤，因此使用服务时不必先执行 `install`。
+`install` 只将当前二进制原子复制到用户安装目录 `~/.local/bin/vimouse`，无需管理员权限，不配置权限、不安装或启用服务。可以重复执行以更新程序；若该目录不在 PATH，命令会提示添加。`init` 不包含程序安装；`install-service` 只注册当前可执行文件，不复制程序。使用单文件方式时，请先 `install`，再通过 `~/.local/bin/vimouse install-service` 注册固定路径，不要注册准备删除的下载或临时构建路径。
 
 `init` 会通过 sudo（未安装时使用 pkexec）请求一次管理员认证，自动检测 uinput、加载需要的内核模块、创建 `vimouse` 用户组、添加当前账户、写入 udev 和模块加载规则，并直接设置现有设备的 ACL。规则和 ACL 编码均内嵌，不需要安装包、配置模板、`acl` 软件包或 `setfacl`。日常运行始终以普通用户进行。
 
@@ -39,13 +50,13 @@ chmod +x ./vimouse
 权限初始化并测试成功后，直接通过二进制管理服务：
 
 ```sh
-./vimouse install-service
-./vimouse start
-./vimouse status
-./vimouse stop
+vimouse install-service
+vimouse start
+vimouse status
+vimouse stop
 ```
 
-- `install-service` 将当前可执行文件原子安装到 `~/.local/bin/vimouse`，写入用户服务并启用图形登录自启动；本次不启动。可重复运行以更新程序，已有配置保留。
+- `install-service` 将当前可执行文件的绝对路径写入用户服务，并启用图形登录自启动；不复制程序、不当场启动。Cargo 默认目录和 `--root` 等自定义安装目录均支持。更换程序路径或从旧版迁移时重新注册，之后由 Cargo 更新同一路径的程序，停止再启动服务即可加载新版。
 - `start` 启动 `vimouse.service`，等待浮层和输入控制器就绪；失败时返回错误。命令可重复执行；已有实例不会重复启动。更新正在运行的程序后，用 `stop` 再 `start` 加载新版本。
 - `stop` 停止服务及其浮层、释放键盘；下次登录仍会自动启动。取消登录自启动使用 `systemctl --user disable vimouse.service`。
 - `status` 显示服务状态。日志使用 `journalctl --user -u vimouse.service -n 40`。

@@ -67,12 +67,18 @@ sys.exit(1 if os.environ.get('VIMOUSE_TEST_SYSTEMCTL_FAIL') in sys.argv[1:] else
     run("install", executable_path=binary)
     assert binary.read_bytes() == BINARY.read_bytes()
     print("PASS standalone user installation and self-update without systemd or authentication")
-    run("install-service")
-    assert binary.read_bytes() == BINARY.read_bytes()
+    # Model a Cargo installation, including --root and paths with special characters.
+    cargo_binary = home / "custom cargo root/bin/vimouse"
+    cargo_binary.parent.mkdir(parents=True)
+    shutil.copy2(BINARY, cargo_binary)
+    binary.unlink()
+    run("install-service", executable_path=cargo_binary)
+    assert not binary.exists(), "service registration must not create a second executable"
     unit_path = home / ".config/systemd/user/vimouse.service"
     unit = unit_path.read_text()
     assert 'Type=notify' in unit and '--no-hud' not in unit
     assert "home with %% and $" in unit
+    assert str(cargo_binary).replace("%", "%%") in unit
     if ANALYZE:
         # Model WantedBy=graphical-session.target and verify the full login graph,
         # so ordering cycles cannot hide behind a standalone unit parse.
@@ -95,9 +101,10 @@ sys.exit(1 if os.environ.get('VIMOUSE_TEST_SYSTEMCTL_FAIL') in sys.argv[1:] else
     # Simulate the former two-unit layout, then reinstall from the installed binary itself.
     legacy = unit_path.with_name("vimouse-hud.service")
     legacy.write_text("[Service]\nExecStart=/bin/false\n")
-    run("install-service",executable_path=binary)
+    run("install-service",executable_path=cargo_binary)
+    assert not binary.exists()
     assert ["systemctl","--user","disable","--now","vimouse-hud.service"] in calls()
-    print("PASS atomic installation with special paths, login autostart and legacy migration")
+    print("PASS Cargo executable registration without copying, special paths and legacy migration")
     run("start")
     run("stop")
     run("status")
