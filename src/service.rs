@@ -96,19 +96,22 @@ fn unit(binary: &Path) -> Result<String, String> {
     let path = binary.to_str().ok_or("Executable path must be UTF-8")?;
     Ok(include_str!("../packaging/vimouse.service").replace("%h/.local/bin/vimouse", &quote(path)))
 }
-fn save_session() -> Result<(), String> {
-    // Store only the display connection settings, scoped to this unit. Do not
-    // import the whole shell environment or change other services' environment.
-    if env::var_os("WAYLAND_DISPLAY").is_none() {
-        return Ok(());
-    }
+fn runtime_directory() -> Result<PathBuf, String> {
     let runtime = env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(format!("/run/user/{}", unsafe { libc::geteuid() })));
     if !runtime.is_absolute() {
         return Err("XDG_RUNTIME_DIR must be absolute".into());
     }
-    let directory = runtime.join("systemd/user");
+    Ok(runtime.join("systemd/user"))
+}
+fn save_session() -> Result<(), String> {
+    // Store only the display connection settings, scoped to this unit. Do not
+    // import the whole shell environment or change other services' environment.
+    if env::var_os("WAYLAND_DISPLAY").is_none() {
+        return Ok(());
+    }
+    let directory = runtime_directory()?;
     let mut text =
         String::from("# Managed by vimouse; desktop connection settings only.\n[Service]\n");
     for key in SESSION {
@@ -130,6 +133,56 @@ fn save_session() -> Result<(), String> {
         text.as_bytes(),
         0o600,
     )
+}
+
+fn remove_file_if_present(path: &Path) -> Result<(), String> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("Cannot remove {}: {error}", path.display())),
+    }
+}
+
+fn uninstall_service(directory: &Path) -> Result<(), String> {
+    manager_ready()?;
+    // Validate paths before changing any service state. Remove only our files,
+    // preserving custom drop-ins and all configuration/mark data.
+    let runtime = runtime_directory()?;
+    for name in [UNIT, "vimouse-hud.service"] {
+        let state = Command::new("systemctl")
+            .args(["--user", "show", name, "--property=LoadState", "--value"])
+            .output()
+            .map_err(|error| error.to_string())?;
+        if !state.status.success() {
+            return Err(format!(
+                "Cannot query {name}: {}",
+                String::from_utf8_lossy(&state.stderr)
+            ));
+        }
+        let installed = fs::symlink_metadata(directory.join(name)).is_ok();
+        if installed || String::from_utf8_lossy(&state.stdout).trim() != "not-found" {
+            systemctl(&["disable", "--now", name])?;
+        }
+        remove_file_if_present(&directory.join(name))?;
+        remove_file_if_present(&directory.join("graphical-session.target.wants").join(name))?;
+        let drop_in = runtime.join(format!("{name}.d"));
+        remove_file_if_present(&drop_in.join("session.conf"))?;
+        match fs::remove_dir(&drop_in) {
+            Ok(()) => {}
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::DirectoryNotEmpty
+                ) => {}
+            Err(error) => return Err(format!("Cannot remove {}: {error}", drop_in.display())),
+        }
+    }
+    systemctl(&["daemon-reload"])?;
+    println!(
+        "Vimouse services stopped, disabled and removed. Executable, configuration, marks and input permissions are unchanged."
+    );
+    println!("To remove a Cargo installation, run `cargo uninstall vimouse`.");
+    Ok(())
 }
 
 fn install_binary(binary: &Path) -> Result<(), String> {
@@ -167,6 +220,7 @@ pub fn execute(command: &str, args: Vec<String>) -> Result<(), String> {
     }
     let directory = service_directory()?;
     match command {
+        "uninstall-service" => uninstall_service(&directory)?,
         "install-service" => {
             manager_ready()?;
             let binary = env::current_exe().map_err(|e| e.to_string())?;

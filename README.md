@@ -109,6 +109,28 @@ vimouse start
 
 Updates preserve your configuration and marks. Run either the user service or a foreground `run` instance, one at a time. See [user service management](docs/guide.md#安装用户服务与自启动) (Chinese) for details.
 
+## Uninstall
+
+If you installed the user service, remove it **before** uninstalling the executable:
+
+```sh
+vimouse uninstall-service
+cargo uninstall vimouse
+```
+
+If you only ran Vimouse in the foreground, exit it and run `cargo uninstall vimouse` directly. For a custom Cargo installation root, pass the same `--root` to `cargo uninstall`.
+
+`uninstall-service` stops and disables the main service and any previous separate HUD service, removes their unit files and managed runtime session settings, and reloads systemd. It can be run more than once and preserves custom drop-ins. Configuration, saved marks, and device permissions configured by `init` are kept. For manually installed binaries, remove the installed executable instead of running `cargo uninstall`.
+
+To also delete your configuration and saved marks, run the following **optional, permanent data removal** after stopping Vimouse:
+
+```sh
+rm -rf -- "${XDG_CONFIG_HOME:-$HOME/.config}/vimouse"
+rm -rf -- "${XDG_STATE_HOME:-$HOME/.local/state}/vimouse"
+```
+
+See [uninstallation details](docs/guide.md#卸载) (Chinese) for retained permission settings.
+
 ## Configuration and documentation
 
 For a local checkout, install with `cargo install --path . --locked`. The standalone `vimouse install` command remains available for manually downloaded binaries.

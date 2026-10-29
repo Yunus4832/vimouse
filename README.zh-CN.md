@@ -109,6 +109,28 @@ vimouse start
 
 更新保留配置与标记。服务与前台 `run` 选择一种运行方式即可，详情见[用户服务](docs/guide.md#安装用户服务与自启动)。
 
+## 卸载
+
+如果安装了用户服务，请先移除服务，**再**卸载程序：
+
+```sh
+vimouse uninstall-service
+cargo uninstall vimouse
+```
+
+如果只在前台运行，退出程序后直接执行 `cargo uninstall vimouse` 即可。Cargo 使用自定义安装目录时，卸载也要指定相同的 `--root`。
+
+`uninstall-service` 会停止并禁用主服务和可能残留的独立浮层服务，移除单元文件及程序管理的运行时会话配置，并重新加载 systemd。命令可重复执行，保留自定义 drop-in。用户配置、mark 和 `init` 配置的设备权限默认保留。手动安装单文件时，将 `cargo uninstall` 替换为删除已安装的可执行文件。
+
+若也要删除配置与 mark，在停止程序后执行以下**可选操作，数据会永久删除**：
+
+```sh
+rm -rf -- "${XDG_CONFIG_HOME:-$HOME/.config}/vimouse"
+rm -rf -- "${XDG_STATE_HOME:-$HOME/.local/state}/vimouse"
+```
+
+保留的设备权限配置见[卸载详情](docs/guide.md#卸载)。
+
 ## 配置与文档
 
 本地源码目录可以使用 `cargo install --path . --locked` 安装。手动下载单文件时，仍可使用 `vimouse install` 安装程序。

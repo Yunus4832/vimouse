@@ -59,11 +59,40 @@ vimouse stop
 - `install-service` 将当前可执行文件的绝对路径写入用户服务，并启用图形登录自启动；不复制程序、不当场启动。Cargo 默认目录和 `--root` 等自定义安装目录均支持。更换程序路径或从旧版迁移时重新注册，之后由 Cargo 更新同一路径的程序，停止再启动服务即可加载新版。
 - `start` 启动 `vimouse.service`，等待浮层和输入控制器就绪；失败时返回错误。命令可重复执行；已有实例不会重复启动。更新正在运行的程序后，用 `stop` 再 `start` 加载新版本。
 - `stop` 停止服务及其浮层、释放键盘；下次登录仍会自动启动。取消登录自启动使用 `systemctl --user disable vimouse.service`。
+- `uninstall-service` 停止并禁用主服务及残留的独立浮层服务，移除单元文件与程序管理的运行时会话配置；不卸载程序，不删除用户数据或设备权限。
 - `status` 显示服务状态。日志使用 `journalctl --user -u vimouse.service -n 40`。
 
-四个命令都以普通桌面用户执行，不使用 sudo。控制器和浮层由同一个服务管理；安装时会停用旧版独立 `vimouse-hud.service`，避免重复浮层。不要同时手动运行 `run` 和服务。
+这些命令都以普通桌面用户执行，不使用 sudo。控制器和浮层由同一个服务管理；安装时会停用旧版独立 `vimouse-hud.service`，避免重复浮层。不要同时手动运行 `run` 和服务。
 
 在桌面终端执行 `install-service` / `start` 时，程序只将显示连接变量写入当前登录会话的临时单元配置（`$XDG_RUNTIME_DIR/systemd/user/vimouse.service.d/session.conf`），不导入其他 shell 变量、不改变其他服务环境。后续图形登录通常由桌面向 systemd 用户会话提供显示变量；niri 应使用它的 systemd 会话启动方式。服务随图形会话启停，不需要启用 linger。
+
+## 卸载
+
+先退出前台实例。如果安装过用户服务，按下面的顺序操作：
+
+```sh
+vimouse uninstall-service
+cargo uninstall vimouse
+```
+
+没有安装服务时，只需退出程序并执行 `cargo uninstall vimouse`；自定义 Cargo 根目录请使用 `cargo uninstall --root /your/install/root vimouse`。手动通过 `vimouse install` 安装的单文件位于 `~/.local/bin/vimouse`，在移除服务后手动删除该文件即可。
+
+服务卸载命令需要可连接的 systemd 用户会话，以普通用户执行，不使用 sudo。它会先停止并禁用服务，再删除文件；停止或禁用失败时返回错误，保留对应服务文件供排查。重复卸载或未安装服务时也可安全执行。只移除 `vimouse.service`、残留的 `vimouse-hud.service`、图形会话自启动链接以及它们运行时 drop-in 中由 Vimouse 写入的 `session.conf`，不递归删除自定义 drop-in。
+
+默认保留以下内容，方便重新安装后恢复使用：
+
+- `$XDG_CONFIG_HOME/vimouse`，默认 `~/.config/vimouse`：用户配置。
+- `$XDG_STATE_HOME/vimouse`，默认 `~/.local/state/vimouse`：持久 mark。
+- `init` 创建的 `/etc/udev/rules.d/70-vimouse.rules`、`/etc/modules-load.d/vimouse.conf`、`vimouse` 用户组与设备 ACL：设备访问配置。
+
+停止 Vimouse 后，可自行选择永久删除配置和 mark：
+
+```sh
+rm -rf -- "${XDG_CONFIG_HOME:-$HOME/.config}/vimouse"
+rm -rf -- "${XDG_STATE_HOME:-$HOME/.local/state}/vimouse"
+```
+
+权限配置属于管理员管理的系统状态，当前不提供自动撤销命令。若不再需要这些权限，可由管理员检查上述规则、组成员关系和当前设备 ACL 后清理；删除规则文件本身不会立即撤销现有设备 ACL，已有登录会话也会保留组成员身份，因此不应将 Cargo 卸载视为撤销输入权限。
 
 ## 接管真实鼠标
 

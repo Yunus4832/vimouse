@@ -19,6 +19,7 @@ Usage: vimouse <command> [options]
   install        Copy this executable to ~/.local/bin/vimouse (no service changes)
   init           Request administrator authentication and configure input permissions
   install-service Register this executable as a user service (enable, but do not start)
+  uninstall-service Stop, disable and remove user services (keep data and permissions)
   start          Start the installed user service
   stop           Stop the user service and its overlay
   status         Show user service status
@@ -296,7 +297,16 @@ fn execute() -> Result<(), String> {
     if command == "init" {
         return vimouse::setup::init(args.collect());
     }
-    if ["install", "install-service", "start", "stop", "status"].contains(&command.as_str()) {
+    if [
+        "install",
+        "install-service",
+        "uninstall-service",
+        "start",
+        "stop",
+        "status",
+    ]
+    .contains(&command.as_str())
+    {
         return vimouse::service::execute(&command, args.collect());
     }
     let options = options(args)?;

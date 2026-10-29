@@ -35,9 +35,16 @@ sys.exit(int(os.environ.get('VIMOUSE_TEST_AUTH_RESULT','0')))
 '''
     executable(stubs / "sudo", helper)
     executable(stubs / "systemctl", '''import json,os,sys
+from pathlib import Path
 with open(os.environ['VIMOUSE_TEST_LOG'],'a') as f:
     f.write(json.dumps(['systemctl',*sys.argv[1:]])+'\\n')
-sys.exit(1 if os.environ.get('VIMOUSE_TEST_SYSTEMCTL_FAIL') in sys.argv[1:] else 0)
+if os.environ.get('VIMOUSE_TEST_SYSTEMCTL_FAIL') in sys.argv[1:]:
+    sys.exit(1)
+if 'show' in sys.argv[1:]:
+    unit = sys.argv[sys.argv.index('show')+1]
+    exists = (Path(os.environ['XDG_CONFIG_HOME'])/'systemd/user'/unit).exists()
+    print('loaded' if exists or os.environ.get('VIMOUSE_TEST_LOADED') else 'not-found')
+sys.exit(0)
 ''')
     def run(*args, ok=True, extra=None, executable_path=BINARY):
         result = subprocess.run([executable_path,*args], env=dict(env,**(extra or {})),
@@ -113,3 +120,36 @@ sys.exit(1 if os.environ.get('VIMOUSE_TEST_SYSTEMCTL_FAIL') in sys.argv[1:] else
     assert ["systemctl","--user","stop","vimouse-hud.service"] in calls()
     assert 'failed' in run("start",ok=False,extra={"VIMOUSE_TEST_SYSTEMCTL_FAIL":"start"}).stderr
     print("PASS start/stop/status and systemctl failure propagation without real service changes")
+
+    # Removal stops/disables before deleting files, and preserves user data/overrides.
+    config = home / ".config/vimouse/config.toml"
+    marks = home / ".local/state/vimouse/marks.json"
+    for path in [config, marks]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("keep user data")
+    custom = session_path.with_name("custom.conf")
+    custom.write_text("# user override")
+    legacy_session = runtime / "systemd/user/vimouse-hud.service.d/session.conf"
+    legacy_session.parent.mkdir(parents=True)
+    legacy_session.write_text("# managed session")
+    wants = unit_path.parent / "graphical-session.target.wants"
+    wants.mkdir(exist_ok=True)
+    (wants / legacy.name).symlink_to(legacy)
+    run("uninstall-service", ok=False, extra={"VIMOUSE_TEST_SYSTEMCTL_FAIL":"disable"})
+    assert unit_path.exists() and session_path.exists(), "keep files if stopping/disabling fails"
+    before = len(calls())
+    run("uninstall-service")
+    removed = calls()[before:]
+    for name in ["vimouse.service", "vimouse-hud.service"]:
+        assert ["systemctl", "--user", "disable", "--now", name] in removed
+        assert not (unit_path.parent / name).exists()
+        assert not (wants / name).is_symlink()
+    assert not session_path.exists() and not legacy_session.exists()
+    assert custom.read_text() == "# user override"
+    assert config.read_text() == marks.read_text() == "keep user data"
+    assert cargo_binary.exists(), "Cargo owns the executable"
+    before = len(calls())
+    run("uninstall-service")
+    assert not any("disable" in call for call in calls()[before:]), "repeated uninstall is safe"
+    run("uninstall-service", extra={"VIMOUSE_TEST_LOADED":"1"})
+    print("PASS idempotent service removal, loaded orphan cleanup, failure handling and user data preservation")
