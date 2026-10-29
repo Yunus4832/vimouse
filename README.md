@@ -1,26 +1,28 @@
 # Vimouse
 
-用 Vim 的方式操作鼠标：`hjkl` 移动，`f` 快速跳转，`Tab` 精细定位。按一次 `Caps Lock` 开始控制，再按一次回到正常打字。
+English | [简体中文](README.zh-CN.md)
 
-Vimouse 是面向 Linux 的 Rust 项目。浮层直接使用 Wayland，字体内嵌，无需 Qt 或 GTK；musl 构建可作为单个静态二进制运行。
+Control your mouse with Vim-style keys: move with `hjkl`, jump with `f`, and fine-tune with `Tab`. Press `Caps Lock` to start controlling the mouse; press it again to return to typing.
 
-日常控制时只显示右下角的模式与速度胶囊，输入命令时展开命令条；打字时隐藏。浮层始终允许鼠标点击穿透，不接收键盘焦点。
+Vimouse is written in Rust for Linux. Its native Wayland overlay includes embedded fonts and requires no Qt or GTK. A musl build runs as a single static binary.
 
-![鼠标控制模式下的速度胶囊](docs/hud.png)
+During mouse control, a small capsule in the bottom-right corner shows the mode and speed. Command mode expands it into an input bar; typing mode hides it. The overlay lets mouse clicks pass through and never takes keyboard focus.
 
-![命令模式输入条](docs/command-hud.png)
+![Mode and speed capsule](docs/hud.png)
 
-## 支持环境
+![Command input bar](docs/command-hud.png)
 
-完整体验需要 **Linux + 支持 layer-shell 的 Wayland 桌面**，主要面向 KDE Plasma Wayland 和 niri。当前静态构建目标为 x86_64。
+## Supported environments
 
-- 需要键盘设备与 `/dev/uinput` 的访问权限，使用 `vimouse init` 一次性配置。
-- GNOME Wayland、X11 暂无浮层后端，可尝试 `--no-hud` 输入控制，无法使用完整网格界面。
-- Windows、macOS 暂不支持。其他 Wayland 合成器的兼容情况见[支持范围与限制](docs/guide.md#010-支持环境与限制)。
+The full interface requires **Linux and a Wayland compositor with layer-shell support**. KDE Plasma Wayland and niri are the primary targets. The current static build target is x86_64.
 
-## 安装与启动
+- Keyboard devices and `/dev/uinput` need appropriate permissions. Run `vimouse init` once to configure access.
+- GNOME Wayland and X11 have no overlay backend yet. You can try input control with `--no-hud`, but the visual grids will be unavailable.
+- Windows and macOS are not supported. See [compatibility and limitations](docs/guide.md#010-支持环境与限制) (Chinese) for details about other compositors.
 
-目前可以从源码构建，需要 Linux 和 Rust 工具链：
+## Build and run
+
+Build from source on Linux with the Rust toolchain:
 
 ```sh
 git clone https://github.com/Yunus4832/vimouse.git
@@ -32,64 +34,64 @@ cargo build --release --locked
 ./target/release/vimouse run
 ```
 
-请在**桌面终端中以普通用户**执行。`init` 会按需通过 sudo 或 pkexec 请求管理员认证，配置 uinput 和设备权限；日常运行无需 sudo。当前设备权限立即生效，建议注销并重新登录一次，让用户组权限覆盖后续设备与服务。
+Run these commands **as your regular user in a desktop terminal**. `init` requests administrator authentication through sudo or pkexec when needed to configure uinput and device permissions. Daily use does not require sudo. Access to currently connected devices takes effect immediately; log out and back in once so group permissions also apply to future devices and services.
 
-想先看看效果，可运行 `cargo run -- demo`，输入 `caps f a` 并回车。演示不接管键盘，也不移动系统鼠标。
+To try the interface first, run `cargo run -- demo`, type `caps f a`, and press Enter. The demo neither captures your keyboard nor moves the system pointer.
 
-试用满意后，可安装为登录自启动的用户服务。先退出前台运行的实例，再执行：
+To start Vimouse automatically when you log in, exit the foreground instance and install the user service:
 
 ```sh
 ./target/release/vimouse install-service
 ~/.local/bin/vimouse start
 ```
 
-`install-service` 会将程序复制到 `~/.local/bin/vimouse` 并启用自启动，`start` 立即启动服务。若只想安装程序、仍手动运行，使用 `vimouse install`。详情见[安装与设备权限](docs/guide.md#安装与设备权限)。
+`install-service` copies the binary to `~/.local/bin/vimouse` and enables login autostart. `start` launches the service immediately. To install only the executable and keep running it manually, use `vimouse install`. See [installation and device permissions](docs/guide.md#安装与设备权限) (Chinese) for details.
 
-## 开始使用
+## Basic controls
 
-程序启动于 **Insert（打字）模式**。按 `Caps Lock` 进入 **Normal（鼠标控制）模式**，常用操作如下；按 `?` 可随时打开帮助。
+Vimouse starts in **Insert mode**, where you type normally. Press `Caps Lock` to enter **Normal mode** for mouse control. Press `?` in Normal mode to open the shortcut reference.
 
-| 按键 | 操作 |
+| Key | Action |
 | --- | --- |
-| `h` / `j` / `k` / `l` | 按住向左 / 下 / 上 / 右移动 |
-| `1` / `2` / `3` | 切换快 / 中 / 慢三档速度 |
-| `Enter` | 左键点击 |
-| `Alt+Enter` | 右键点击，进入菜单选择模式 |
-| `Ctrl+Enter` | 中键点击 |
-| `v` | 开始左键拖选，再按一次结束 |
-| `Alt+hjkl` | 水平或垂直滚动 |
-| `Space` | 切换到下一块显示器并居中 |
-| `i` 或 `Caps Lock` | 回到打字模式 |
+| `h` / `j` / `k` / `l` | Hold to move left / down / up / right |
+| `1` / `2` / `3` | Select fast / medium / fine speed |
+| `Enter` | Left-click |
+| `Alt+Enter` | Right-click and enter menu selection mode |
+| `Ctrl+Enter` | Middle-click |
+| `v` | Start a left-button drag; press again to release |
+| `Alt+hjkl` | Scroll horizontally or vertically |
+| `Space` | Switch to the next display and center the pointer |
+| `i` or `Caps Lock` | Return to typing |
 
-**紧急释放：`Ctrl+Alt+Esc` 返回打字模式；`Ctrl+Alt+Backspace` 退出程序。**
+**Emergency shortcuts: `Ctrl+Alt+Esc` releases control and returns to Insert mode; `Ctrl+Alt+Backspace` quits Vimouse.**
 
-### 快速跳转与精细定位
+### Jump and refine
 
-`f` 和 `Tab` 是两个独立工具，可以单独使用，也可以接着用：
+`f` and `Tab` are independent tools. Use either on its own, or combine them:
 
-1. 按 `f`，当前显示器出现 **5×5 字母网格**。按目标区域的字母，鼠标跳到该格中心，立即回到 Normal。
-2. 接着可以直接用 `hjkl` 移动；需要精调时按 `Tab`，以当前鼠标位置为中心展开 **4×4 网格**。
-3. 选中字母后进入 **3×3 微调**，用 `hjkl` 选格；再按 `Tab` 可细分到最后的 **2×2**。
-4. 按 `Space` 完成定位，或按 `Enter` 完成并点击。`z` / Backspace 返回上一层，`Esc` 取消并恢复进入工具时的位置。
+1. Press `f` to show a **5×5 letter grid** on the current display. Type a cell's letter to jump to its center and return immediately to Normal mode.
+2. Continue moving with `hjkl`, or press `Tab` to open a **4×4 grid** centered around the current pointer position.
+3. Choose a letter to enter a **3×3 fine grid**, then use `hjkl` to select a cell. Press `Tab` again to subdivide into the final **2×2 grid**.
+4. In the refinement tool, press `Space` to finish, or `Enter` to finish and click. Use `z` or Backspace to go back one level. `Esc` cancels and restores the position from before entering the tool.
 
-网格字母位于鼠标落点中心；细分到 3×3、2×2 后不再显示字母。完整规则与示例见[网格操作](docs/guide.md#f-快速选块)。
+Letters mark the center of each cell, exactly where the pointer will land. The 3×3 and 2×2 stages use a selection outline without letters. See [grid controls](docs/guide.md#f-快速选块) (Chinese) for the full rules and examples.
 
-### 保存常用位置
+### Save frequently used positions
 
-- `m` 后接 `a`–`z`：保存当前位置。
-- `'` 后接对应字母：跳转到已保存位置。
-- `M`（Shift+m）：在各显示器上展示标记，按字母跳转；Esc 收起。
-- `''`：与上次跳转的位置交换。
+- `m` followed by `a`–`z`: save the current position as a named mark.
+- `'` followed by a mark's letter: jump to that position.
+- `M` (Shift+m): show marks across your displays, then type a letter to jump. Press Esc to close.
+- `''`: swap with the previous jump position.
 
-命名标记会自动保存，重启后恢复。坐标按显示器名称与屏内相对位置记录，分辨率、缩放或排列变化后仍可使用；离线显示器的标记保留。详情见[mark 持久保存](docs/guide.md#mark-持久保存)。
+Named marks are saved automatically and restored on restart. Each records a display name and a relative position, so it adapts to resolution, scaling, and layout changes. Marks for disconnected displays are retained. See [mark persistence](docs/guide.md#mark-持久保存) (Chinese) for the storage format and behavior.
 
-更多操作包括菜单选择、命令输入、窗口切换与跳转，见[完整按键表](docs/guide.md#操作)，或在 Normal 中按 `?`：
+For menu navigation, commands, window switching, and more shortcuts, see the [complete key reference](docs/guide.md#操作) (Chinese), or press `?` in Normal mode:
 
-![居中的快捷键帮助](docs/help.png)
+![Shortcut reference](docs/help.png)
 
-## 服务管理与更新
+## Manage the service and update
 
-以下命令假设 `~/.local/bin` 已加入 PATH；否则请使用完整路径 `~/.local/bin/vimouse`。
+These commands assume `~/.local/bin` is on your PATH. Otherwise, use the full executable path, `~/.local/bin/vimouse`.
 
 ```sh
 vimouse status
@@ -98,7 +100,7 @@ vimouse start
 journalctl --user -u vimouse.service -n 40
 ```
 
-更新源码后，重新构建并替换已安装的程序，再重启服务：
+After pulling updates, rebuild, replace the installed binary, and restart the service:
 
 ```sh
 git pull --ff-only
@@ -108,19 +110,21 @@ cargo build --release --locked
 ~/.local/bin/vimouse start
 ```
 
-更新保留配置与标记。服务与前台 `run` 选择一种运行方式即可，详情见[用户服务](docs/guide.md#安装用户服务与自启动)。
+Updates preserve your configuration and marks. Run either the user service or a foreground `run` instance, one at a time. See [user service management](docs/guide.md#安装用户服务与自启动) (Chinese) for details.
 
-## 配置与文档
+## Configuration and documentation
 
-无需配置即可运行。需要调整速度、切换键或空闲超时，可复制示例后修改，重启生效：
+Vimouse works with its defaults. To customize speeds, the mode-switch key, or the idle timeout, copy the example configuration, edit it, and restart:
 
 ```sh
 mkdir -p ~/.config/vimouse
 cp config.example.toml ~/.config/vimouse/config.toml
 ```
 
-- [使用与开发指南](docs/guide.md)：完整按键、权限、标记格式、多屏、兼容性与静态构建。
-- [架构与实机检查](docs/architecture.md)：代码结构和验证方法。
-- [更新记录](CHANGELOG.md) · [后续快捷键候选](docs/shortcuts-roadmap.md)。
+The detailed documentation is currently in Chinese:
 
-许可证为 [Apache-2.0](LICENSE)，项目与第三方说明见 [NOTICE](NOTICE)。单文件发行包内也可使用 `vimouse licenses` 查看。
+- [User and development guide](docs/guide.md): complete shortcuts, permissions, mark format, multiple displays, compatibility, and static builds.
+- [Architecture and hardware checks](docs/architecture.md): code structure and validation procedures.
+- [Changelog](CHANGELOG.md) · [Shortcut proposals](docs/shortcuts-roadmap.md).
+
+Licensed under [Apache-2.0](LICENSE). Project and third-party notices are available in [NOTICE](NOTICE). You can also run `vimouse licenses` to view the notices embedded in the binary.
