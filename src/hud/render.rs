@@ -513,26 +513,30 @@ mod fixtures {
                 );
             }
             if let Some(directory) = std::env::var_os("VIMOUSE_RENDER_DIR") {
-                let path = std::path::Path::new(&directory).join(format!("{name}.ppm"));
+                let path = std::path::Path::new(&directory).join(format!("{name}.pam"));
                 let mut file = std::fs::File::create(path).unwrap();
-                write!(file, "P6\n1920 1080\n255\n").unwrap();
-                // Composite over a light checkerboard for visual inspection.
-                let mut rgb = Vec::with_capacity(1920 * 1080 * 3);
-                for (index, p) in bytes.chunks_exact(4).enumerate() {
+                write!(
+                    file,
+                    "P7\nWIDTH 1920\nHEIGHT 1080\nDEPTH 4\nMAXVAL 255\nTUPLTYPE RGB_ALPHA\nENDHDR\n"
+                )
+                .unwrap();
+                // wl_shm uses premultiplied ARGB; image files need straight RGBA.
+                let mut rgba = Vec::with_capacity(bytes.len());
+                for p in bytes.chunks_exact(4) {
                     let argb = u32::from_ne_bytes(p.try_into().unwrap());
                     let alpha = (argb >> 24) & 255;
-                    let bg = if (index % 1920 / 48 + index / 1920 / 48) % 2 == 0 {
-                        220
-                    } else {
-                        245
-                    };
                     for shift in [16, 8, 0] {
-                        rgb.push(
-                            (((argb >> shift) & 255) + bg * (255 - alpha) / 255).min(255) as u8,
+                        let channel = (argb >> shift) & 255;
+                        rgba.push(
+                            (channel * 255 + alpha / 2)
+                                .checked_div(alpha)
+                                .unwrap_or(0)
+                                .min(255) as u8,
                         );
                     }
+                    rgba.push(alpha as u8);
                 }
-                file.write_all(&rgb).unwrap();
+                file.write_all(&rgba).unwrap();
             }
         }
     }
