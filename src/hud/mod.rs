@@ -1,4 +1,5 @@
 //! Native Wayland layer-shell HUD. No Qt, GPU, system fonts, or input bindings.
+mod panels;
 mod render;
 use crate::{
     displays::{Display, Layout},
@@ -233,7 +234,8 @@ impl Hud {
             };
             let name = info.name.as_deref().unwrap_or("");
             let status = self.status.as_ref().filter(|state| {
-                state.display.name == name
+                (state.mode == crate::engine::Mode::Marks && !state.display.name.is_empty())
+                    || state.display.name == name
                     || (state.display.name.is_empty()
                         && self.outputs.outputs().next().as_ref() == Some(&s.output))
             });
@@ -241,8 +243,18 @@ impl Hud {
                 Some(state) if state.mode == crate::engine::Mode::Grid => {
                     serde_json::to_string(&(&state.display, &state.grid))
                 }
-                Some(state) if state.mode != crate::engine::Mode::Insert => {
+                Some(state)
+                    if matches!(
+                        state.mode,
+                        crate::engine::Mode::Command
+                            | crate::engine::Mode::Help
+                            | crate::engine::Mode::Marks
+                    ) =>
+                {
                     serde_json::to_string(state)
+                }
+                Some(state) if state.mode != crate::engine::Mode::Insert => {
+                    serde_json::to_string(&(state.mode, state.speed, &state.mark_save_error))
                 }
                 _ => Ok(String::new()),
             }

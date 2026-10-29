@@ -311,7 +311,41 @@ impl KeyMerger {
     }
 }
 
-pub fn run(config: Config, selected: Vec<PathBuf>, mut runtime: Runtime) -> io::Result<()> {
+pub fn run(
+    config: Config,
+    selected: Vec<PathBuf>,
+    mut runtime: Runtime,
+    mut check_health: impl FnMut() -> io::Result<()>,
+) -> io::Result<()> {
+    check_health()?;
+    // Load state before creating virtual devices or grabbing a physical keyboard.
+    let (mark_store, saved_marks) = crate::marks::Store::open(crate::marks::default_path()?)?;
+    eprintln!(
+        "Named marks: {} loaded from {}",
+        saved_marks.len(),
+        mark_store.path().display()
+    );
+    let mut mark_worker = crate::marks::SaveWorker::spawn(mark_store)?;
+    // All captured devices live in this inner call. They are dropped before the
+    // outer worker is joined, even on an input error or HUD failure.
+    run_input(
+        config,
+        selected,
+        &mut runtime,
+        saved_marks,
+        &mut mark_worker,
+        check_health,
+    )
+}
+
+fn run_input(
+    config: Config,
+    selected: Vec<PathBuf>,
+    runtime: &mut Runtime,
+    saved_marks: crate::marks::Marks,
+    mark_worker: &mut crate::marks::SaveWorker,
+    mut check_health: impl FnMut() -> io::Result<()>,
+) -> io::Result<()> {
     let mut devices = if selected.is_empty() {
         keyboards()
     } else {
@@ -369,6 +403,7 @@ pub fn run(config: Config, selected: Vec<PathBuf>, mut runtime: Runtime) -> io::
     if stop.load(Ordering::Relaxed) {
         return Ok(());
     }
+    check_health()?;
     for (path, device) in &mut devices {
         if device.get_key_state()?.iter().next().is_some() {
             return Err(io::Error::other(format!(
@@ -389,6 +424,7 @@ pub fn run(config: Config, selected: Vec<PathBuf>, mut runtime: Runtime) -> io::
     // evdev::Device ungrabs in Drop, including partial startup failure and panic.
     let tick = Duration::from_secs_f64(1.0 / f64::from(config.tick_hz));
     let mut engine = Engine::with_layout(config, layout);
+    engine.restore_marks(saved_marks);
     if let Some(name) = displays::active_output(display_source) {
         engine.select_display(&name);
     }
@@ -402,6 +438,10 @@ pub fn run(config: Config, selected: Vec<PathBuf>, mut runtime: Runtime) -> io::
     eprintln!("Vimouse ready (insert). Ctrl+Alt+Esc releases control; Ctrl+Alt+Backspace quits.");
     crate::service::notify_ready()?;
     while !stop.load(Ordering::Relaxed) {
+        check_health()?;
+        for result in mark_worker.poll() {
+            engine.mark_save_finished(result.revision, result.result);
+        }
         let now = Instant::now();
         let timeout = if engine.is_moving() {
             next_tick.saturating_duration_since(now)
@@ -478,7 +518,17 @@ pub fn run(config: Config, selected: Vec<PathBuf>, mut runtime: Runtime) -> io::
                             }
                             last_tick = Instant::now();
                         }
-                        quit |= output.emit(engine.key(K(event.code()), value))?;
+                        let actions = engine.key(K(event.code()), value);
+                        let revision = engine.marks_revision();
+                        match mark_worker.submit(revision, engine.marks()) {
+                            Ok(true) => engine.mark_save_started(revision),
+                            Ok(false) => {}
+                            Err(error) => {
+                                engine.mark_save_started(revision);
+                                engine.mark_save_finished(revision, Err(error.to_string()));
+                            }
+                        }
+                        quit |= output.emit(actions)?;
                     }
                 }
                 if quit {

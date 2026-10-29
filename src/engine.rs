@@ -1,7 +1,15 @@
 //! Deterministic modal controller. No I/O, threads, clocks or desktop APIs.
+mod context;
+mod global;
+mod tools;
+use global::InputState;
+mod pointer;
+use context::Context;
+
 use crate::config::Config;
 use crate::displays::{Display, Layout};
 use crate::grid::{Grid, GridStatus, GridTool};
+use crate::marks::{Mark, Marks};
 use evdev::KeyCode as K;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -18,13 +26,11 @@ pub enum Mode {
     Select,
     Command,
     Grid,
+    Marks,
+    Help,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Point {
-    pub x: i32,
-    pub y: i32,
-}
+pub use crate::geometry::Point;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -42,6 +48,13 @@ enum Motion {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MarkTarget {
+    pub label: char,
+    pub display: String,
+    pub position: Option<Point>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Status {
     pub mode: Mode,
     pub speed: usize,
@@ -50,6 +63,14 @@ pub struct Status {
     pub pending: String,
     pub message: String,
     pub marks: usize,
+    #[serde(default)]
+    pub mark_save_error: Option<String>,
+    #[serde(default)]
+    pub marks_pending: bool,
+    #[serde(default)]
+    pub mark_targets: Vec<MarkTarget>,
+    #[serde(default)]
+    pub toggle: String,
     pub screen: crate::config::Screen,
     pub grid: Option<GridStatus>,
     pub display: Display,
@@ -59,23 +80,21 @@ pub struct Status {
 
 pub struct Engine {
     config: Config,
-    mode: Mode,
+    context: Context,
     speed: usize,
     x: f64,
     y: f64,
-    keys: BTreeSet<K>,
-    forwarded: BTreeSet<K>,
+    input: InputState,
     held: BTreeMap<K, Motion>,
-    drag_button: Option<K>,
-    pending: String,
-    command: String,
-    marks: BTreeMap<char, Point>,
+    marks: Marks,
+    marks_revision: u64,
+    mark_save_revision: Option<u64>,
+    mark_save_error: Option<String>,
     previous: Option<Point>,
     message: String,
     idle: Duration,
     scroll_elapsed: Duration,
     toggle_elapsed: Option<Duration>,
-    grid: Option<Grid>,
     layout: Layout,
     output: usize,
 }
@@ -92,21 +111,19 @@ impl Engine {
             x: f64::from(center.x),
             y: f64::from(center.y),
             config,
-            mode: Mode::Insert,
+            context: Context::Insert,
             speed: 0,
-            keys: BTreeSet::new(),
-            forwarded: BTreeSet::new(),
+            input: InputState::default(),
             held: BTreeMap::new(),
-            drag_button: None,
-            pending: String::new(),
-            command: String::new(),
-            marks: BTreeMap::new(),
+            marks: Marks::new(),
+            marks_revision: 0,
+            mark_save_revision: None,
+            mark_save_error: None,
             previous: None,
             message: "Ready".into(),
             idle: Duration::ZERO,
             scroll_elapsed: Duration::ZERO,
             toggle_elapsed: None,
-            grid: None,
             layout,
             output: 0,
         }
@@ -114,26 +131,64 @@ impl Engine {
 
     pub fn status(&self) -> Status {
         Status {
-            mode: self.mode,
+            mode: self.mode(),
             speed: self.speed,
             pixels_per_second: self.config.speeds[self.speed],
             position: self.point(),
-            pending: if self.mode == Mode::Command {
-                format!(":{}", self.command)
+            pending: if self.mode() == Mode::Command {
+                format!(":{}", self.context.command_text())
             } else {
-                self.pending.clone()
+                self.context.prefix().to_owned()
             },
             message: self.message.clone(),
             marks: self.marks.len(),
+            mark_save_error: self.mark_save_error.clone(),
+            marks_pending: self.mark_save_revision.is_some(),
+            mark_targets: if self.mode() == Mode::Marks {
+                self.marks
+                    .iter()
+                    .map(|(&label, mark)| MarkTarget {
+                        label,
+                        display: mark.display.clone(),
+                        position: mark.resolve(&self.layout),
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            },
+            toggle: self.config.toggle.clone(),
             screen: crate::config::Screen {
                 width: self.display().width,
                 height: self.display().height,
             },
-            grid: self.grid.as_ref().map(Grid::status),
+            grid: self.context.grid().map(Grid::status),
             display: self.display().clone(),
             displays: self.layout.outputs.clone(),
             desktop: self.layout.bounds,
         }
+    }
+
+    pub fn restore_marks(&mut self, marks: Marks) {
+        self.marks = marks;
+        self.marks_revision = 0;
+        self.mark_save_revision = None;
+        self.mark_save_error = None;
+    }
+    pub fn marks(&self) -> &Marks {
+        &self.marks
+    }
+    pub fn marks_revision(&self) -> u64 {
+        self.marks_revision
+    }
+    pub fn mark_save_started(&mut self, revision: u64) {
+        self.mark_save_revision = Some(revision);
+    }
+    pub fn mark_save_finished(&mut self, revision: u64, result: Result<(), String>) {
+        if self.mark_save_revision != Some(revision) {
+            return;
+        }
+        self.mark_save_revision = None;
+        self.mark_save_error = result.err();
     }
 
     pub fn layout(&self) -> &Layout {
@@ -167,8 +222,8 @@ impl Engine {
         let name = self.display().name.clone();
         let point = self.point();
         let mut actions = Vec::new();
-        if self.mode == Mode::Grid || self.mode == Mode::Visual {
-            self.transition(Mode::Normal, &mut actions);
+        if self.mode() == Mode::Grid || self.mode() == Mode::Visual {
+            self.enter(Context::normal(), &mut actions);
         }
         self.layout = layout;
         self.output = self
@@ -177,7 +232,6 @@ impl Engine {
             .iter()
             .position(|o| o.name == name)
             .unwrap_or_else(|| self.layout.locate(point).0);
-        self.marks.clear();
         self.previous = None;
         self.held.clear();
         let target = if self.display().contains(point) {
@@ -192,17 +246,17 @@ impl Engine {
 
     pub fn needs_active_display(&self, key: K, value: i32) -> bool {
         value == 1
-            && ((self.mode == Mode::Insert && Some(key) == self.config.toggle_key())
-                || (self.mode == Mode::Normal
+            && ((self.mode() == Mode::Insert && Some(key) == self.config.toggle_key())
+                || (self.mode() == Mode::Normal
                     && key == K::KEY_F
                     && !self.ctrl()
                     && !self.alt()
                     && !self.shift()
-                    && self.pending.is_empty()))
+                    && self.context.prefix().is_empty()))
     }
 
     pub fn mode(&self) -> Mode {
-        self.mode
+        self.context.mode()
     }
     pub fn is_moving(&self) -> bool {
         !self.held.is_empty()
@@ -215,41 +269,48 @@ impl Engine {
     }
 
     fn shift(&self) -> bool {
-        self.keys.contains(&K::KEY_LEFTSHIFT) || self.keys.contains(&K::KEY_RIGHTSHIFT)
+        self.input.down.contains(&K::KEY_LEFTSHIFT) || self.input.down.contains(&K::KEY_RIGHTSHIFT)
     }
     fn ctrl(&self) -> bool {
-        self.keys.contains(&K::KEY_LEFTCTRL) || self.keys.contains(&K::KEY_RIGHTCTRL)
+        self.input.down.contains(&K::KEY_LEFTCTRL) || self.input.down.contains(&K::KEY_RIGHTCTRL)
     }
     fn alt(&self) -> bool {
-        self.keys.contains(&K::KEY_LEFTALT) || self.keys.contains(&K::KEY_RIGHTALT)
+        self.input.down.contains(&K::KEY_LEFTALT) || self.input.down.contains(&K::KEY_RIGHTALT)
     }
 
-    fn release_drag(&mut self, actions: &mut Vec<Action>) {
-        if let Some(button) = self.drag_button.take() {
-            actions.push(Action::Button(button, false));
+    fn enter(&mut self, context: Context, actions: &mut Vec<Action>) {
+        let previous = std::mem::replace(&mut self.context, context);
+        if let Some(origin) = previous.exit(actions) {
+            self.previous = Some(origin);
         }
-    }
-
-    fn transition(&mut self, mode: Mode, actions: &mut Vec<Action>) {
-        if let Some(grid) = self.grid.take() {
-            self.previous = Some(grid.origin);
-        }
-        self.release_drag(actions);
-        for key in std::mem::take(&mut self.forwarded) {
+        for key in std::mem::take(&mut self.input.forwarded) {
             actions.push(Action::Key(key, 0));
         }
         self.held.clear();
-        self.pending.clear();
-        self.command.clear();
         self.idle = Duration::ZERO;
-        self.mode = mode;
         self.message.clear();
+    }
+
+    fn cancel_context(&mut self, actions: &mut Vec<Action>) {
+        if let Some(grid) = self.context.grid() {
+            let origin = grid.origin;
+            let previous = self.previous;
+            self.enter(Context::normal(), actions);
+            self.previous = previous;
+            self.place(origin, actions);
+        } else {
+            let dismiss_menu = self.mode() == Mode::Select;
+            self.enter(Context::normal(), actions);
+            if dismiss_menu {
+                Self::tap(K::KEY_ESC, actions);
+            }
+        }
     }
 
     pub fn reset(&mut self) -> Vec<Action> {
         let mut actions = Vec::new();
-        self.transition(Mode::Insert, &mut actions);
-        self.keys.clear();
+        self.enter(Context::Insert, &mut actions);
+        self.input.down.clear();
         actions
     }
 
@@ -281,386 +342,29 @@ impl Engine {
             return out;
         }
         if value == 0 {
-            self.keys.remove(&key);
+            self.input.down.remove(&key);
             self.held.remove(&key);
         } else {
-            self.keys.insert(key);
+            self.input.down.insert(key);
             self.idle = Duration::ZERO;
         }
 
-        // An unconditional escape route, including during command entry and drags.
-        if value == 1 && self.ctrl() && self.alt() && (key == K::KEY_ESC || key == K::KEY_BACKSPACE)
-        {
-            self.transition(Mode::Insert, &mut out);
-            if key == K::KEY_BACKSPACE {
-                out.push(Action::Quit);
-            }
+        if self.handle_global_key(key, value, &mut out) {
             return out;
         }
-        if Some(key) == self.config.toggle_key() {
-            if value == 1 {
-                let native_caps = key == K::KEY_CAPSLOCK
-                    && self.mode == Mode::Normal
-                    && self
-                        .toggle_elapsed
-                        .is_some_and(|elapsed| elapsed <= Duration::from_millis(350));
-                let mode = if self.mode == Mode::Insert {
-                    Mode::Normal
-                } else {
-                    Mode::Insert
-                };
-                self.transition(mode, &mut out);
-                self.toggle_elapsed = if mode == Mode::Normal {
-                    Some(Duration::ZERO)
-                } else {
-                    None
-                };
-                if native_caps {
-                    Self::tap(K::KEY_CAPSLOCK, &mut out);
-                }
-                // Wayland does not expose global pointer position. Reclaim our last
-                // virtual position on activation so marks and jumps stay consistent.
-                if mode == Mode::Normal {
-                    out.push(Action::Pointer(self.point()));
-                }
-            }
-            return out;
-        }
-        if value == 0 && self.forwarded.remove(&key) {
-            out.push(Action::Key(key, 0));
-            return out;
-        }
-        if self.mode == Mode::Insert {
-            match value {
-                1 => {
-                    self.forwarded.insert(key);
-                    out.push(Action::Key(key, 1));
-                }
-                2 if self.forwarded.contains(&key) => out.push(Action::Key(key, 2)),
-                _ => {}
-            }
-            return out;
-        }
-        if value == 0 || is_modifier(key) {
-            return out;
-        }
-        // Preserve native Alt+Tab / Ctrl+Tab, including holding the modifier
-        // across multiple tabs. Releases are balanced even outside insert mode.
-        if key == K::KEY_TAB && (self.ctrl() || self.alt()) && self.mode != Mode::Command {
-            for modifier in [
-                K::KEY_LEFTCTRL,
-                K::KEY_RIGHTCTRL,
-                K::KEY_LEFTALT,
-                K::KEY_RIGHTALT,
-                K::KEY_LEFTSHIFT,
-                K::KEY_RIGHTSHIFT,
-            ] {
-                if self.keys.contains(&modifier) && self.forwarded.insert(modifier) {
-                    out.push(Action::Key(modifier, 1));
-                }
-            }
-            Self::tap(K::KEY_TAB, &mut out);
-            return out;
-        }
-        // Do not leak a native switching modifier into the next mouse action.
-        for key in std::mem::take(&mut self.forwarded) {
-            out.push(Action::Key(key, 0));
-        }
-        if self.mode == Mode::Grid {
-            // One physical press selects one level. Autorepeat must not zoom
-            // through several levels while the user is reading the overlay.
-            if value != 1 {
-                return out;
-            }
-            if key == K::KEY_ESC {
-                let origin = self.grid.as_ref().unwrap().origin;
-                let previous = self.previous;
-                self.transition(Mode::Normal, &mut out);
-                self.previous = previous;
-                self.place(origin, &mut out);
-            } else if key == K::KEY_SPACE || key == K::KEY_ENTER {
-                self.transition(Mode::Normal, &mut out);
-                if key == K::KEY_ENTER {
-                    let button = if self.alt() {
-                        K::BTN_RIGHT
-                    } else if self.ctrl() {
-                        K::BTN_MIDDLE
-                    } else {
-                        K::BTN_LEFT
-                    };
-                    Self::click(button, &mut out);
-                    if button == K::BTN_RIGHT {
-                        self.transition(Mode::Select, &mut out);
-                    }
-                }
-            } else if !self.ctrl() && !self.alt() {
-                let label = character(key, false);
-                let back = key == K::KEY_BACKSPACE || label == Some('z');
-                let point = if back {
-                    self.grid.as_mut().unwrap().back()
-                } else if key == K::KEY_TAB {
-                    let point = self.grid.as_mut().unwrap().refine();
-                    if point.is_none() && self.grid.as_ref().unwrap().status().fine {
-                        self.message = "Final 2×2 level reached".into();
-                    }
-                    point
-                } else if self.grid.as_ref().unwrap().status().fine {
-                    let direction = match key {
-                        K::KEY_H => Some((-1, 0)),
-                        K::KEY_L => Some((1, 0)),
-                        K::KEY_K => Some((0, -1)),
-                        K::KEY_J => Some((0, 1)),
-                        _ => None,
-                    };
-                    direction.and_then(|(dx, dy)| self.grid.as_mut().unwrap().nudge(dx, dy))
-                } else {
-                    label.and_then(|c| self.grid.as_mut().unwrap().choose(c))
-                };
-                if let Some(point) = point {
-                    if self.grid.as_ref().unwrap().tool() == GridTool::Block {
-                        self.transition(Mode::Normal, &mut out);
-                    } else {
-                        self.message.clear();
-                    }
-                    self.place(point, &mut out);
-                } else if back {
-                    self.message = "Already at the top level".into();
-                }
-            }
-            return out;
-        }
-        if key == K::KEY_ESC {
-            self.transition(Mode::Normal, &mut out);
-            return out;
-        }
-        let ch = character(key, self.shift());
-        if self.mode == Mode::Command {
-            match key {
-                K::KEY_ENTER if value == 1 => {
-                    let command = self.command.clone();
-                    self.transition(Mode::Normal, &mut out);
-                    match command.as_str() {
-                        "q" | "quit" => { out.extend(self.reset()); out.push(Action::Quit); },
-                        "i" | "insert" => self.transition(Mode::Insert, &mut out),
-                        "marks" => self.message = self.marks.keys().collect(),
-                        "help" => self.message = "hjkl move · Enter click · a speed · i insert · v drag · m{a-z} mark · :q quit".into(),
-                        _ => self.message = format!("Unknown command: {command}"),
-                    }
-                }
-                K::KEY_BACKSPACE => {
-                    self.command.pop();
-                }
-                _ => {
-                    if let Some(ch) = ch {
-                        if self.command.len() < 128 {
-                            self.command.push(ch);
-                        }
-                    }
-                }
-            }
-            return out;
-        }
-        if self.mode == Mode::Select {
-            let mapped = match key {
-                K::KEY_H => Some(K::KEY_LEFT),
-                K::KEY_J => Some(K::KEY_DOWN),
-                K::KEY_K => Some(K::KEY_UP),
-                K::KEY_L => Some(K::KEY_RIGHT),
-                K::KEY_ENTER => {
-                    self.transition(Mode::Normal, &mut out);
-                    Some(K::KEY_ENTER)
-                }
-                K::KEY_Q => {
-                    let escape = !self.shift();
-                    self.transition(Mode::Normal, &mut out);
-                    escape.then_some(K::KEY_ESC)
-                }
-                _ => None,
-            };
-            if let Some(key) = mapped {
-                Self::tap(key, &mut out);
-            }
-            return out;
-        }
-        // Only motions repeat continuously. Discrete commands execute once per press.
-        if value == 2 {
-            return out;
-        }
-        if self.mode == Mode::Normal && key == K::KEY_SPACE && !self.ctrl() && !self.alt() {
-            self.held.clear();
-            self.pending.clear();
-            self.output = (self.output + 1) % self.layout.outputs.len();
-            self.jump(self.display_rect().center(), &mut out);
-            self.message = format!(
-                "Display {}/{}: {}",
-                self.output + 1,
-                self.layout.outputs.len(),
-                self.display().name
-            );
-            return out;
-        }
-        if self.mode == Mode::Normal
-            && key == K::KEY_TAB
-            && !self.ctrl()
-            && !self.alt()
-            && !self.shift()
-        {
-            let grid = Grid::precision(self.display_rect(), self.point());
-            self.transition(Mode::Grid, &mut out);
-            self.grid = Some(grid);
-            return out;
-        }
-        if !self.pending.is_empty() {
-            let prefix = std::mem::take(&mut self.pending);
-            match (prefix.as_str(), ch) {
-                ("m", Some(c @ 'a'..='z')) => {
-                    self.marks.insert(c, self.point());
-                    self.message = format!("Mark {c} saved");
-                }
-                ("'" | "`", Some(c)) => {
-                    let target = if c == '\'' || c == '`' {
-                        self.previous
-                    } else {
-                        self.marks.get(&c).copied()
-                    };
-                    if let Some(p) = target {
-                        self.jump(p, &mut out);
-                    } else {
-                        self.message = format!("Mark {c} is not set");
-                    }
-                }
-                ("g", Some('g')) => self.jump(
-                    Point {
-                        x: self.display().x,
-                        y: self.display().y,
-                    },
-                    &mut out,
-                ),
-                ("g", Some('c')) => self.jump(
-                    Point {
-                        x: self.display().x + self.display().width / 2,
-                        y: self.display().y + self.display().height / 2,
-                    },
-                    &mut out,
-                ),
-                ("g", Some('e')) => self.jump(
-                    Point {
-                        x: self.display().x + self.display().width - 1,
-                        y: self.display().y + self.display().height - 1,
-                    },
-                    &mut out,
-                ),
-                ("z", Some('t')) | ("z", Some('\n')) => self.jump(
-                    Point {
-                        x: self.point().x,
-                        y: self.display().y,
-                    },
-                    &mut out,
-                ),
-                ("z", Some('z')) => self.jump(
-                    Point {
-                        x: self.point().x,
-                        y: self.display().y + self.display().height / 2,
-                    },
-                    &mut out,
-                ),
-                ("z", Some('b')) => self.jump(
-                    Point {
-                        x: self.point().x,
-                        y: self.display().y + self.display().height - 1,
-                    },
-                    &mut out,
-                ),
-                _ => self.message = "Unknown key sequence".into(),
-            }
-            return out;
-        }
-        self.message.clear();
-        if self.ctrl() && key == K::KEY_A {
-            self.speed = 2;
-            return out;
-        }
-        if self.alt() && key == K::KEY_A {
-            self.speed = 0;
-            return out;
-        }
-
-        let direction = match key {
-            K::KEY_H => Some((-1, 0)),
-            K::KEY_L => Some((1, 0)),
-            K::KEY_K => Some((0, -1)),
-            K::KEY_J => Some((0, 1)),
-            _ => None,
+        let actions = match self.mode() {
+            Mode::Grid => self.handle_grid(key, value),
+            Mode::Help => self.handle_help(key, value),
+            Mode::Marks => self.handle_marks(key, value),
+            Mode::Command => self.handle_command(key, value),
+            Mode::Select => self.handle_select(key),
+            Mode::Normal | Mode::Visual => self.handle_pointer(key, value),
+            Mode::Insert => unreachable!("Insert forwarding is handled before dispatch"),
         };
-        let scroll = if self.alt() {
-            direction.map(|(x, y)| (-x, -y))
-        } else if self.ctrl() && key == K::KEY_B {
-            Some((0, 1))
-        } else if self.ctrl() && key == K::KEY_F {
-            Some((0, -1))
-        } else {
-            None
-        };
-        if let Some((x, y)) = scroll {
-            self.held.insert(key, Motion::Scroll(x, y));
-            self.scroll_elapsed = Duration::ZERO;
-            out.push(Action::Scroll {
-                horizontal: x * self.config.scroll_lines,
-                vertical: y * self.config.scroll_lines,
-            });
-        } else if let Some((x, y)) = direction {
-            if !self.ctrl() && !self.alt() {
-                self.held.insert(key, Motion::Move(x, y));
-            }
-        } else if key == K::KEY_ENTER {
-            self.release_drag(&mut out);
-            if self.mode == Mode::Visual {
-                self.mode = Mode::Normal;
-            }
-            let button = if self.alt() {
-                K::BTN_RIGHT
-            } else if self.ctrl() {
-                K::BTN_MIDDLE
-            } else {
-                K::BTN_LEFT
-            };
-            Self::click(button, &mut out);
-            if button == K::BTN_RIGHT {
-                self.transition(Mode::Select, &mut out);
-            }
-        } else if key == K::KEY_V && !self.alt() {
-            if self.mode == Mode::Visual {
-                self.transition(Mode::Normal, &mut out);
-            } else {
-                self.transition(Mode::Visual, &mut out);
-                let button = if self.ctrl() {
-                    K::BTN_MIDDLE
-                } else {
-                    K::BTN_LEFT
-                };
-                self.drag_button = Some(button);
-                out.push(Action::Button(button, true));
-            }
-        } else if !self.ctrl() && !self.alt() {
-            match ch {
-                Some('i' | 'I') => {
-                    self.release_drag(&mut out);
-                    if self.shift() {
-                        Self::click(K::BTN_LEFT, &mut out);
-                    }
-                    self.transition(Mode::Insert, &mut out);
-                }
-                Some('a') => self.speed = (self.speed + 1) % 3,
-                Some('s') => self.transition(Mode::Select, &mut out),
-                Some('f') if self.mode == Mode::Normal => {
-                    self.transition(Mode::Grid, &mut out);
-                    self.grid = Some(Grid::in_rect(self.display_rect(), self.point()));
-                }
-                Some(':') => self.transition(Mode::Command, &mut out),
-                Some(c @ ('g' | 'z' | 'm' | '\'' | '`')) => self.pending.push(c),
-                _ => {}
-            }
+        if out.is_empty() {
+            return actions;
         }
+        out.extend(actions);
         out
     }
 
@@ -669,7 +373,7 @@ impl Engine {
         if let Some(since) = &mut self.toggle_elapsed {
             *since = since.saturating_add(elapsed);
         }
-        if self.mode == Mode::Insert {
+        if self.mode() == Mode::Insert {
             return out;
         }
         // Held motions count as activity; an idle timeout must never end a drag
@@ -682,7 +386,7 @@ impl Engine {
         if self.config.idle_seconds > 0
             && self.idle >= Duration::from_secs(self.config.idle_seconds)
         {
-            self.transition(Mode::Insert, &mut out);
+            self.enter(Context::Insert, &mut out);
             self.message = "Idle · returned to insert".into();
             return out;
         }
@@ -707,11 +411,15 @@ impl Engine {
             self.y += f64::from(dy) / length * distance;
             let (output, point) = self.layout.locate(self.point());
             self.output = output;
-            if point != self.point() {
+            let pressed_edge = point != self.point();
+            if pressed_edge {
                 self.x = f64::from(point.x);
                 self.y = f64::from(point.y);
             }
-            if previous != self.point() {
+            // Keep reporting an outward held motion at the boundary. Compositors
+            // can push the real pointer back and recheck edges after a dwell;
+            // stopping events here would require an unrelated sideways motion.
+            if previous != self.point() || pressed_edge {
                 out.push(Action::Pointer(self.point()));
             }
         }
@@ -772,6 +480,7 @@ pub fn character(key: K, shift: bool) -> Option<char> {
         K::KEY_X => ('x', 'X'),
         K::KEY_Y => ('y', 'Y'),
         K::KEY_Z => ('z', 'Z'),
+        K::KEY_SLASH => ('/', '?'),
         K::KEY_SEMICOLON => (';', ':'),
         K::KEY_APOSTROPHE => ('\'', '"'),
         K::KEY_GRAVE => ('`', '~'),

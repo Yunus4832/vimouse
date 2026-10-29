@@ -10,4 +10,5 @@ alt+enter j j enter
 shift+i
 caps
 : m a r k s enter
+esc
 : q enter

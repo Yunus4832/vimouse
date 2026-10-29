@@ -30,7 +30,7 @@ Usage: vimouse <command> [options]
   displays       Show logical display geometry and the active output
   list-devices   List readable physical keyboards
   config         Print the default TOML configuration
-  licenses       Print embedded third-party license notices
+  licenses       Print embedded project and third-party license notices
 
 Options:
   --config PATH       Load configuration (otherwise use $XDG_CONFIG_HOME/vimouse/config.toml if present)
@@ -132,16 +132,6 @@ fn hud(directory: &std::path::Path, preview: bool) -> Result<Child, String> {
     }
 }
 
-struct Hud(Option<Child>);
-impl Drop for Hud {
-    fn drop(&mut self) {
-        if let Some(child) = &mut self.0 {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-    }
-}
-
 fn parse_key(text: &str) -> Result<Vec<K>, String> {
     let mut keys = Vec::new();
     for part in text.split('+') {
@@ -165,6 +155,10 @@ fn parse_key(text: &str) -> Result<Vec<K>, String> {
                 keys.push(K::KEY_LEFTSHIFT);
                 K::KEY_SEMICOLON
             }
+            "?" => {
+                keys.push(K::KEY_LEFTSHIFT);
+                K::KEY_SLASH
+            }
             "'" => K::KEY_APOSTROPHE,
             "`" => K::KEY_GRAVE,
             _ if part.len() == 1 => {
@@ -186,7 +180,13 @@ fn parse_key(text: &str) -> Result<Vec<K>, String> {
     Ok(keys)
 }
 
-fn demo(config: Config, mut runtime: Runtime, fast: bool) -> Result<(), String> {
+fn demo(
+    config: Config,
+    mut runtime: Runtime,
+    fast: bool,
+    mut check_health: impl FnMut() -> io::Result<()>,
+) -> Result<(), String> {
+    check_health().map_err(|e| e.to_string())?;
     let tick = Duration::from_secs_f64(1.0 / f64::from(config.tick_hz));
     let (layout, source) = vimouse::displays::detect(config.screen);
     let mut engine = Engine::with_layout(config, layout);
@@ -199,12 +199,29 @@ fn demo(config: Config, mut runtime: Runtime, fast: bool) -> Result<(), String> 
         "Demo: no system input is captured or injected. Type `caps l:500 a j:200`, then Enter."
     );
     println!("{}", serde_json::to_string(&engine.status()).unwrap());
-    for line in io::stdin().lock().lines() {
-        let line = line.map_err(|e| e.to_string())?;
+    let (send, receive) = std::sync::mpsc::sync_channel(1);
+    std::thread::Builder::new()
+        .name("vimouse-demo-input".into())
+        .spawn(move || {
+            for line in io::stdin().lock().lines() {
+                if send.send(line).is_err() {
+                    break;
+                }
+            }
+        })
+        .map_err(|e| e.to_string())?;
+    loop {
+        check_health().map_err(|e| e.to_string())?;
+        let line = match receive.recv_timeout(Duration::from_millis(100)) {
+            Ok(line) => line.map_err(|e| e.to_string())?,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        };
         if line.trim_start().starts_with('#') {
             continue;
         }
         for token in line.split_whitespace() {
+            check_health().map_err(|e| e.to_string())?;
             let (name, ms) = match token.rsplit_once(':') {
                 Some((name, millis)) if !name.is_empty() && !millis.is_empty() => (
                     name,
@@ -230,8 +247,11 @@ fn demo(config: Config, mut runtime: Runtime, fast: bool) -> Result<(), String> 
             while !remaining.is_zero() {
                 let elapsed = remaining.min(tick);
                 actions.extend(engine.tick(elapsed));
-                if !fast && last_status.elapsed() >= Duration::from_millis(40) {
-                    runtime.write(&engine.status()).map_err(|e| e.to_string())?;
+                if last_status.elapsed() >= Duration::from_millis(40) {
+                    check_health().map_err(|e| e.to_string())?;
+                    if !fast {
+                        runtime.write(&engine.status()).map_err(|e| e.to_string())?;
+                    }
                     last_status = Instant::now();
                 }
                 if !fast {
@@ -291,7 +311,12 @@ fn execute() -> Result<(), String> {
     }
     match command.as_str() {
         "licenses" => {
-            print!("{}", include_str!("../packaging/THIRD-PARTY-NOTICES.txt"));
+            print!(
+                "{}\n{}\n{}",
+                include_str!("../LICENSE"),
+                include_str!("../NOTICE"),
+                include_str!("../packaging/THIRD-PARTY-NOTICES.txt")
+            );
             Ok(())
         }
         "check-hud" => vimouse::hud::check(),
@@ -334,18 +359,16 @@ fn execute() -> Result<(), String> {
             }
             let directory = options.runtime.unwrap_or_else(status::default_directory);
             let runtime = Runtime::acquire(directory.clone()).map_err(|e| e.to_string())?;
-            let _hud = if options.no_hud {
-                Hud(None)
+            let mut hud_process = vimouse::desktop::HudProcess::new(if options.no_hud {
+                None
             } else {
-                match hud(&directory, false) {
-                    Ok(child) => Hud(Some(child)),
-                    Err(error) => return Err(error),
-                }
-            };
+                Some(hud(&directory, false)?)
+            });
             if command == "demo" {
-                demo(config, runtime, options.fast)
+                demo(config, runtime, options.fast, || hud_process.check())
             } else {
-                linux::run(config, options.devices, runtime).map_err(|e| e.to_string())
+                linux::run(config, options.devices, runtime, || hud_process.check())
+                    .map_err(|e| e.to_string())
             }
         }
         "hud" => {

@@ -130,3 +130,62 @@ fn qt_is_never_launched_by_the_native_hud() {
     assert!(!sentinel.exists());
     fs::remove_dir_all(path).unwrap();
 }
+
+#[test]
+fn invalid_mark_state_is_reported_before_input_and_demo_does_not_read_or_overwrite_it() {
+    let base = directory();
+    fs::create_dir(&base).unwrap();
+    for explicit in [true, false] {
+        let home = base.join(if explicit { "explicit" } else { "fallback" });
+        let state = if explicit {
+            home.join("custom-state")
+        } else {
+            home.join(".local/state")
+        };
+        let marks = state.join("vimouse/marks.json");
+        fs::create_dir_all(marks.parent().unwrap()).unwrap();
+        fs::write(&marks, b"invalid mark state").unwrap();
+        let mut command = Command::new(env!("CARGO_BIN_EXE_vimouse"));
+        command
+            .args(["run", "--no-hud", "--runtime-dir"])
+            .arg(home.join("runtime"))
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", home.join("config"));
+        if explicit {
+            command.env("XDG_STATE_HOME", &state);
+        } else {
+            command.env_remove("XDG_STATE_HOME");
+        }
+        let output = command.output().unwrap();
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(!output.status.success());
+        assert!(error.contains(&marks.display().to_string()), "{error}");
+        assert!(!error.contains("Capturing"), "{error}");
+        assert_eq!(fs::read(&marks).unwrap(), b"invalid mark state");
+        let mut demo = Command::new(env!("CARGO_BIN_EXE_vimouse"))
+            .args(["demo", "--no-hud", "--fast", "--runtime-dir"])
+            .arg(home.join("runtime"))
+            .env("HOME", &home)
+            .env("XDG_STATE_HOME", &state)
+            .env("XDG_CONFIG_HOME", home.join("config"))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        demo.stdin
+            .take()
+            .unwrap()
+            .write_all(b"caps m a : q enter\n")
+            .unwrap();
+        let output = demo.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("\"marks\":1"));
+        assert_eq!(fs::read(&marks).unwrap(), b"invalid mark state");
+    }
+    fs::remove_dir_all(base).unwrap();
+}

@@ -1,5 +1,5 @@
 //! Logical output geometry and bounded, read-only compositor discovery.
-use crate::{config::Screen, engine::Point, grid::Rect};
+use crate::{config::Screen, geometry::Point, grid::Rect};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{

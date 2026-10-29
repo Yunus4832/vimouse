@@ -13,13 +13,13 @@ fi
 release_dir=$(mktemp -d)
 trap 'rm -rf "$release_dir"' EXIT HUP INT TERM
 bundle="vimouse-linux-$(uname -m)"
-mkdir -p "$release_dir/$bundle/packaging"
+mkdir -p "$release_dir/$bundle"
 install -m755 "$binary" "$release_dir/$bundle/vimouse"
-install -m755 packaging/install.sh "$release_dir/$bundle/install.sh"
-cp config.example.toml README.md CHANGELOG.md LICENSE NOTICE packaging/THIRD-PARTY-NOTICES.txt "$release_dir/$bundle/"
-cp -R docs "$release_dir/$bundle/"
-cp packaging/70-vimouse.rules packaging/vimouse.service "$release_dir/$bundle/packaging/"
 mkdir -p dist
 archive="dist/$bundle.tar.gz"
 tar -czf "$archive" -C "$release_dir" "$bundle"
+# dist contains generated outputs; replace the old expanded bundle as well,
+# so the documented direct-test path always runs the just-built executable.
+rm -rf -- "dist/$bundle"
+cp -R "$release_dir/$bundle" "dist/$bundle"
 printf '%s\n' "Built $archive"

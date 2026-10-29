@@ -54,14 +54,14 @@ with tempfile.TemporaryDirectory(prefix="vimouse-native-test-") as temporary:
         demo = subprocess.Popen([BINARY, "demo", "--runtime-dir", runtime], env=dict(env, WAYLAND_DEBUG="1"),
             stdin=subprocess.PIPE, stdout=(base / "demo.log").open("w"), stderr=log, text=True)
         children.append(demo)
-        def wait_status(mode, display=None, columns=None):
+        def wait_status(mode, display=None, columns=None, speed=None):
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
                 if demo.poll() is not None:
                     raise AssertionError((base / "client.log").read_text()[-4000:])
                 try:
                     status = json.loads((runtime / "status.json").read_text())
-                    if status["mode"] == mode and (display is None or status["display"]["name"] == display) and (columns is None or status.get("grid", {}).get("columns") == columns):
+                    if status["mode"] == mode and (display is None or status["display"]["name"] == display) and (columns is None or status.get("grid", {}).get("columns") == columns) and (speed is None or status["speed"] == speed):
                         time.sleep(.12)  # Give the independent overlay a status polling cycle.
                         return status
                 except (OSError, ValueError):
@@ -72,7 +72,17 @@ with tempfile.TemporaryDirectory(prefix="vimouse-native-test-") as temporary:
             demo.stdin.write(keys + "\n")
             demo.stdin.flush()
         first = wait_status("insert")
-        send("caps f")
+        send("caps 3")
+        wait_status("normal", speed=2)
+        send("1")
+        wait_status("normal", speed=0)
+        send("m a space m b M")
+        state=wait_status("marks")
+        assert len(state["mark_targets"])==2 and all(mark["position"] for mark in state["mark_targets"])
+        assert len({mark["display"] for mark in state["mark_targets"]})==2
+        send("a ?")
+        wait_status("help")
+        send("esc f")
         assert wait_status("grid", columns=5)["grid"]["columns"] == 5
         send("m tab")
         assert wait_status("grid", columns=4)["grid"]["columns"] == 4
@@ -95,8 +105,25 @@ with tempfile.TemporaryDirectory(prefix="vimouse-native-test-") as temporary:
         assert re.search(r"\.set_buffer_scale\(1\)", text), "buffer scale missing"
         assert not re.search(r"\.attach\((?:nil|null|None)", text), "surfaces must stay mapped"
         assert not re.search(r"protocol error|panicked|Could not start", text, re.I), text[-4000:]
-        print("PASS same-binary HUD handshake, f / Tab / Space on both outputs")
+        print("PASS same-binary HUD, numeric speed, multi-output marks, help, f / Tab / Space")
         print("PASS input-transparent surfaces stay mapped; no keyboard/pointer bindings")
+        # Fault injection is confined to this private compositor and a no-input demo.
+        fault_runtime=base / "fault-runtime"
+        failed_demo=subprocess.Popen([BINARY,"demo","--runtime-dir",fault_runtime],env=env,
+            stdin=subprocess.PIPE,stdout=(base/"fault.stdout").open("w"),stderr=(base/"fault.stderr").open("w"),text=True)
+        children.append(failed_demo)
+        for _ in range(150):
+            if (fault_runtime/"status.json").exists():break
+            assert failed_demo.poll() is None,(base/"fault.stderr").read_text()
+            time.sleep(.03)
+        descendants=Path(f"/proc/{failed_demo.pid}/task/{failed_demo.pid}/children").read_text().split()
+        hud_pid=next(int(pid) for pid in descendants if b"hud" in Path("/proc",pid,"cmdline").read_bytes().split(b"\0"))
+        os.kill(hud_pid,signal.SIGTERM)
+        assert failed_demo.wait(timeout=3)!=0,"controller must stop if its requested HUD exits"
+        assert "HUD exited" in (base/"fault.stderr").read_text()
+        assert not (fault_runtime/"status.json").exists()
+        print("PASS unexpected HUD exit is reaped and stops the controller while stdin is idle")
+
     finally:
         for child in children:
             if child.poll() is None:

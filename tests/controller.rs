@@ -386,3 +386,80 @@ fn resetting_and_releasing_old_motion_key_cannot_leak_it_into_insert() {
     advance(&mut engine, 100);
     assert_eq!(point, engine.point());
 }
+
+#[test]
+fn held_outward_motion_reasserts_the_edge_until_released() {
+    let mut engine = normal();
+    tap(&mut engine, K::KEY_Z);
+    tap(&mut engine, K::KEY_B);
+    let bottom = engine.point();
+    engine.key(K::KEY_J, 1);
+    for _ in 0..30 {
+        let actions = engine.tick(Duration::from_millis(10));
+        assert_eq!(engine.point(), bottom);
+        assert_eq!(actions, vec![Action::Pointer(bottom)]);
+    }
+    engine.key(K::KEY_J, 0);
+    assert!(engine.tick(Duration::from_millis(10)).is_empty());
+    assert_eq!(engine.point(), bottom);
+}
+
+#[test]
+fn every_visual_exit_releases_drag_and_clears_continuous_motion() {
+    for key in [
+        K::KEY_ENTER,
+        K::KEY_V,
+        K::KEY_ESC,
+        K::KEY_I,
+        K::KEY_CAPSLOCK,
+    ] {
+        let mut engine = normal();
+        tap(&mut engine, K::KEY_V);
+        engine.key(K::KEY_L, 1);
+        advance(&mut engine, 20);
+        let position = engine.point();
+        let actions = tap(&mut engine, key);
+        assert_eq!(actions.first(), Some(&Action::Button(K::BTN_LEFT, false)));
+        assert!(!engine.is_moving(), "{key:?}");
+        assert!(advance(&mut engine, 100).is_empty());
+        assert_eq!(engine.point(), position);
+    }
+}
+
+#[test]
+fn select_escape_dismisses_the_application_menu_but_shift_q_only_leaves_context() {
+    let mut engine = normal();
+    tap(&mut engine, K::KEY_S);
+    assert_eq!(
+        tap(&mut engine, K::KEY_ESC),
+        vec![Action::Key(K::KEY_ESC, 1), Action::Key(K::KEY_ESC, 0)]
+    );
+    tap(&mut engine, K::KEY_S);
+    engine.key(K::KEY_LEFTSHIFT, 1);
+    assert!(tap(&mut engine, K::KEY_Q).is_empty());
+    assert_eq!(engine.mode(), Mode::Normal);
+}
+
+#[test]
+fn persistence_error_survives_context_switches_and_only_latest_success_clears_it() {
+    let mut engine = normal();
+    engine.mark_save_started(1);
+    engine.mark_save_finished(1, Err("disk full".into()));
+    engine.key(K::KEY_LEFTSHIFT, 1);
+    tap(&mut engine, K::KEY_M);
+    engine.key(K::KEY_LEFTSHIFT, 0);
+    assert_eq!(engine.mode(), Mode::Marks);
+    assert_eq!(
+        engine.status().mark_save_error.as_deref(),
+        Some("disk full")
+    );
+    tap(&mut engine, K::KEY_ESC);
+    engine.mark_save_started(2);
+    engine.mark_save_started(3);
+    engine.mark_save_finished(2, Ok(()));
+    assert!(engine.status().marks_pending);
+    assert!(engine.status().mark_save_error.is_some());
+    engine.mark_save_finished(3, Ok(()));
+    assert!(!engine.status().marks_pending);
+    assert!(engine.status().mark_save_error.is_none());
+}

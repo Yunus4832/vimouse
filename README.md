@@ -1,10 +1,12 @@
 # Vimouse
 
-用 Vim 的方式操作鼠标。Rust 重写版，面向 Linux，保留[旧项目](https://github.com/Yunus4832/Vimouse)的模式、按键习惯和底部半透明命令条。
+用 Vim 的方式操作鼠标。Rust 重写版，面向 Linux，保留[旧项目](https://github.com/Yunus4832/vimouse-legacy)的模式与按键习惯，日常只显示右下角速度胶囊，命令模式展开输入条。
 
 核心、输入处理和持续移动使用 Rust。浮层也使用 Rust，直接连接 Wayland 并通过共享内存绘制；字体内嵌，不依赖 Qt、GTK、系统字体、GPU 渲染库、Python、浏览器或 WebView。控制器和浮层运行同一个可执行文件的不同子命令。
 
-![底部状态条](docs/hud.png)
+![右下角速度胶囊](docs/hud.png)
+
+![命令模式输入条](docs/command-hud.png)
 
 ## 单文件安装与权限初始化
 
@@ -34,7 +36,7 @@ chmod +x ./vimouse
 
 显示器布局可以直接从 Wayland 读取；KDE 上已有的 `kscreen-doctor`、`qdbus6` 仍可用于桌面专用查询，但不是必装依赖。未安装 `qdbus6` 时无法查询 KDE 当前活动输出，仍可使用 Space 切屏；niri 通过内嵌 IPC 客户端查询。
 
-也可解压 `vimouse-linux-x86_64.tar.gz` 后运行其中的 `./vimouse init`；`install.sh` 仅作为兼容入口调用同一套初始化逻辑，然后复制程序到 `~/.local/bin`，不安装软件包。
+发行压缩包 `vimouse-linux-x86_64.tar.gz` 仅包含 `vimouse-linux-x86_64/vimouse`，解压后直接执行 `./vimouse init` 和 `./vimouse install`。权限规则、服务模板和项目/第三方许可证均内嵌；使用 `vimouse licenses` 查看。源码目录中的 `packaging/install.sh` 仅保留为兼容入口，不再放入发行包。
 
 `init` 会先通过 `UI_GET_VERSION` 验证内核接口；已有 uinput 可用时不再调用 modprobe。仅有 `/dev/uinput` 文件并不能证明驱动可用。如果运行内核与 `/lib/modules/$(uname -r)` 不匹配且接口不可用，安装会在设备权限配置前停止；内核升级后请保存工作并重启到已安装内核，再重新执行 `vimouse init`。在容器/chroot 中则需要主机提供 uinput 设备。可单独执行 `sudo ./vimouse check-uinput` 做只读接口检查，不创建虚拟设备。
 
@@ -67,7 +69,7 @@ caps l:500 a j:200 m a g g ' a v l:200 v : q enter
 ./target/release/vimouse demo
 ```
 
-原生浮层不加载外部 GUI 运行库。`hud --preview` 仅显示状态条；`demo` 可验证 f / Tab 网格，不捕获或注入系统输入。
+原生浮层不加载外部 GUI 运行库。`hud --preview` 仅显示速度胶囊；`demo` 可验证 f / Tab 网格，不捕获或注入系统输入。
 
 ```sh
 # 静态 Linux x86_64 二进制（构建机只需安装一次 musl Rust 标准库）
@@ -124,6 +126,9 @@ sudo udevadm trigger --subsystem-match=misc
 | Normal 中 `Space` | 独立切换到下一块显示器，鼠标居中；无需进入 f |
 | `f` | 5×5 快速选块，选中字母后跳到中心并立即回到 Normal |
 | Normal 中 `Tab` | 以当前指针为中心展开 4×4 精细网格 |
+| Normal 中 `1` / `2` / `3` | 直接选择快 / 中 / 慢速 |
+| Normal 中 `M`（Shift+m） | 在所有连接的显示器上显示 mark，按字母跳转，Esc 或 M 收起 |
+| Normal 中 `?`（Shift+/） | 居中显示快捷键帮助，Esc、? 或 Enter 收起 |
 | `a` / `Alt+a` / `Ctrl+a` | 循环三档速度 / 最快 / 最精细 |
 | `Enter` / `Alt+Enter` / `Ctrl+Enter` | 左键 / 右键并进入 Select / 中键 |
 | `Alt+h j k l` | 水平或垂直滚动 |
@@ -136,11 +141,11 @@ sudo udevadm trigger --subsystem-match=misc
 | `gg` / `gc` / `ge` | 左上角 / 中心 / 右下角 |
 | `zt` 或 `z Enter` / `zz` / `zb` | 垂直顶部 / 中间 / 底部，保留横坐标 |
 | `s` | 进入 Select，`hjkl` 映射方向键 |
-| Select 中 `Enter` / `q` / `Shift+q` | 确认 / 发送 Esc 并返回 Normal / 直接返回 Normal |
+| Select 中 `Enter` / `q` 或 `Esc` / `Shift+q` | 确认 / 发送 Esc 并返回 Normal / 直接返回 Normal |
 | `Alt+Tab` / `Ctrl+Tab` | 原生窗口 / 标签切换 |
 | `:` | 输入命令；Backspace 编辑，Esc 取消 |
 | `:q Enter` / `:quit Enter` | 退出程序 |
-| `:marks Enter` / `:help Enter` | 显示已有标记名 / 简要帮助 |
+| `:marks Enter` / `:help Enter` | 打开 mark 视图 / 居中帮助 |
 | `Esc` | 取消当前模式、释放拖选、回到 Normal |
 | `Ctrl+Alt+Esc` | 从任意模式返回 Insert，释放 Vimouse 持有的输入 |
 | `Ctrl+Alt+Backspace` | 从任意模式退出程序 |
@@ -190,7 +195,7 @@ Normal 中按 `Tab`，以 Vimouse 当前指针坐标为中心，重新展开 4×
 
 1920×1080 下，f 的大区块是 384×216；Tab 的 4×4 子区块是 96×54，随后 3×3 每格 32×18，2×2 每格约 16×9。输入按物理按键单次触发，长按不会连续跳过层级。
 
-两个工具共用黄色细网格。f 和 Tab 的字母位于每格左上角，距左边 4px、上边 3px，字号 13px，只有细描边，无底框。3×3、2×2 不显示字母，仅以细框标记当前格。全程不压暗屏幕，工具内隐藏底部状态条和右上角面板。
+两个工具共用黄色细网格。f 和 Tab 的字母位于每格中心，与选中后的鼠标落点一致；按字形可见区域居中，字号 13px，只有细描边，无底框。3×3、2×2 不显示字母，仅以细框标记当前格。全程不压暗屏幕，工具内隐藏状态胶囊和命令条。
 
 透明窗口保持映射，只切换绘制内容，不触发开关窗口动画；始终鼠标穿透、不接收键盘焦点、不占用桌面布局。每次 f 跳转或 Tab 完成都独立保留一个跳转起点，可用 `''` 返回。旧配置的 `[grid]` 字段仍可读取但不影响新流程。
 
@@ -207,7 +212,7 @@ cp config.example.toml ~/.config/vimouse/config.toml
 
 `speeds` 是从快到慢的三个速度。KDE/niri 自动检测显示器时采用检测到的逻辑尺寸；`screen` 的 1920×1080 默认值只用于无法检测布局时的单屏回退。`vimouse config` 可以打印完整默认配置。
 
-状态和锁默认放在 `/tmp/vimouse-UID/`，目录权限为 0700。控制器和独立浮层可以通过相同的 `--runtime-dir DIR` 通信。浮层不接收焦点或鼠标点击；Insert 时隐藏。
+状态和锁默认放在 `/tmp/vimouse-UID/`，目录权限为 0700。控制器和独立浮层可以通过相同的 `--runtime-dir DIR` 通信。浮层不接收焦点或鼠标点击；Insert 和网格模式隐藏状态 UI。Normal、Visual、Select 只显示右下角 156×30 的模式/速度胶囊；Command 展开完整输入条，M 和 ? 仅按需显示各自视图。两者距底边 64 个逻辑像素，胶囊距右边 16 个逻辑像素；切换无动画。
 
 ## 0.1.0 支持环境与限制
 
@@ -226,7 +231,36 @@ cp config.example.toml ~/.config/vimouse/config.toml
 - 自动化验证包括状态机、CLI、临时文件 ACL 编码、模拟授权和服务管理、隔离 KWin 双屏浮层。真实键盘捕获、uinput 跨屏落点及管理员初始化仍需要实机验证。
 - 多屏布局支持 Wayland xdg-output、KDE 工具和 niri IPC；布局变化在空闲时检查。KDE 当前活动输出查询依赖可选的 `qdbus6`；缺失时可用 Space 选屏。
 - Wayland 不提供通用的全局指针位置查询。Vimouse 维护自己的指针坐标，实体鼠标不会直接更新保存的坐标；当前显示器查询取决于合成器支持。
-- 键盘断开后释放控制并退出，重新连接后需重启；不自动接管热插拔键盘。标记保存在内存，重启后清空；按键映射暂为固定设计，速度、切换键和超时可配置。
+- 键盘断开后释放控制并退出，重新连接后需重启；不自动接管热插拔键盘。命名标记持久保存，临时跳转历史 `''` 仍只保存在内存；按键映射暂为固定设计，速度、切换键和超时可配置。
+
+## mark 视图与快捷键帮助
+
+普通模式按 `M`（Shift+m），所有已连接显示器上的 mark 都会以黄色十字标出准确落点，旁边是字母标签；重合位置合并显示字母，边缘标签保持在屏内。按对应 `a`–`z` 立即跳转并回到 Normal，不点击。Esc 或再次 M 收起，不改变位置。M 模式只显示落点和字母，不显示说明面板或状态胶囊；离线标记不绘制、不能跳转，记录继续保留。`:marks Enter` 打开同一视图。
+
+![快捷键帮助](docs/help.png)
+
+普通模式按 `?`（Shift+/）打开当前显示器中央的帮助卡片，仅显示已经实现的快捷键，不压暗整屏、不接收鼠标或键盘焦点；Esc、再次 ? 或 Enter 关闭。`:help Enter` 打开同一帮助。
+
+`1`、`2`、`3` 在普通模式分别直接选择 FAST、MED、FINE，原来的 a 循环调速继续可用。命令模式中的数字仍是输入文本，Insert 中正常透传；选标记、帮助和网格模式不将数字解释为调速。
+
+## mark 持久保存
+
+`m{a-z}` 保存的命名 mark 会立即交给后台线程保存到 `$XDG_STATE_HOME/vimouse/marks.json`；未设置时为 `~/.local/state/vimouse/marks.json`。启动自动恢复，无需额外配置；`''` 的上一次跳转位置不写入文件。
+
+```json
+{
+  "version": 1,
+  "marks": {
+    "a": { "display": "DP-1", "x": 0.5, "y": 0.8 }
+  }
+}
+```
+
+坐标来自显示器的**逻辑坐标**，文件保存屏内相对位置 0–1，不保存物理像素或桌面绝对坐标。0 和 1 分别对应首末像素；恢复时按当前逻辑尺寸换算并加上显示器偏移。缩放、分辨率和屏幕排列变化后，mark 会定位到相同的相对区域。显示器断开时保留 mark，跳转不改变位置并在状态消息中提示显示器不可用；重新接回后可继续使用。显示器名称变化不会猜测映射到其他屏幕。
+
+状态目录权限为 0700、文件为 0600，写入使用临时文件、fsync 和原子替换；只有新增或覆盖 mark 时写入。损坏或不支持版本的文件会在捕获键盘前报错，并保留原文件；可修复或备份移走后启动。保存线程合并尚未写入的连续修改，磁盘同步不阻塞输入处理；正常退出先释放输入设备，再等待最新记录保存完成。运行中写入失败则保留内存记录并记录日志，普通状态胶囊以红色 `!` 提示，命令条和帮助卡片也显示保存失败；提示跨模式保留，下一次设置 mark 时重试，最新保存成功后清除。旧版本进程里的内存 mark 无法自动迁移，需要重新设置一次。
+
+`demo` 始终使用独立的内存 mark，不读取或修改真实持久状态。手动编辑状态文件请先停止服务。
 
 ## 安装用户服务与自启动
 
@@ -256,10 +290,10 @@ cargo test --locked
 cargo clippy --locked --all-targets -- -D warnings
 python3 scripts/check-native-hud.py # 开发用隔离 KWin 双屏，不修改桌面、不接管输入
 python3 scripts/check-installer.py # 模拟 sudo/pkexec/systemctl，不修改系统权限或服务
-# 构建包含安装器的发行包
+# 构建仅含单个可执行文件的发行包
 sh scripts/build-release.sh
 # 静态发行包（需先 rustup target add x86_64-unknown-linux-musl）
 sh scripts/build-release.sh --static
 ```
 
-详见 [架构与实机检查](docs/architecture.md)。Apache-2.0，旧项目及灵感来源见 [NOTICE](NOTICE)。
+详见 [架构与实机检查](docs/architecture.md)；后续功能候选见 [快捷键设计](docs/shortcuts-roadmap.md)（其中 M、?、1/2/3 已实现，其余仍为候选）。Apache-2.0，旧项目及灵感来源见 [NOTICE](NOTICE)。
